@@ -28,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Box shadow direction** — shadow offset now includes horizontal component matching Material Design light source
 
 ### Dependencies
-- gg v0.29.0 → v0.29.1
-- gogpu v0.19.6 → v0.20.1 (ResourceTracker, touch/pen input)
-- wgpu v0.16.9 → v0.16.10
-- naga v0.14.1 → v0.14.2
+- gg v0.29.0 → v0.30.1
+- gogpu v0.19.6 → v0.20.6 (software backend fix, ResourceTracker, touch/pen input)
+- wgpu v0.16.9 → v0.16.15 (software backend always compiled)
+- naga v0.14.1 → v0.14.3
 
 ### Phase 2: Interactive Widgets (Partial)
 
