@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WindowSize on Context** (`widget/context.go`) — `WindowSize()` method for overlay positioning calculations
 
 ### Changed
+- **Update gg v0.32.0 → v0.32.4** — includes MSL backend fixes for Apple Silicon:
+  vertex `[[stage_in]]` for struct-typed arguments, `metal::discard_fragment()` namespace,
+  plus text rendering fixes (rotated text artifacts, tab character rendering)
+  ([naga#38](https://github.com/gogpu/naga/pull/38),
+  [ui#23](https://github.com/gogpu/ui/issues/23))
 - **Multi-layer box shadow** — Material Design elevation now uses 3-4 concentric semi-transparent rounded rects (approximated Gaussian blur) instead of single flat rectangle. Levels 1-5 with progressive elevation
 - **GPU direct rendering** — hello example switched from CPU readback (`RenderTo`) to zero-copy GPU surface rendering (`RenderDirect`). Single render pass, no CPU readback
 - **Material Design card layout** — hello example wraps content card in outer container with 24px margin
@@ -28,15 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Box shadow direction** — shadow offset now includes horizontal component matching Material Design light source
 
 ### Dependencies
-- gg v0.29.0 → v0.31.1 (Vulkan copy stride fix, text API redesign, DrawStringWrapped)
+- gg v0.29.0 → v0.32.0 (smart rasterizer selection, Vulkan copy stride fix, text API redesign)
 - gogpu v0.19.6 → v0.22.1 (Vulkan copy stride fix, X11 multi-touch, Wayland support)
 - wgpu v0.16.9 → v0.18.1 (Vulkan copy stride fix, public API root package)
 - naga v0.14.1 → v0.14.3
 
-### Phase 2: Interactive Widgets (Partial)
+### Phase 2: Interactive Widgets (Complete — 16/16 tasks)
 
-First batch of interactive widgets with 3-layer architecture (ADR-003), keyboard focus management,
-CDK foundation, and Material Design 3 theming with pluggable painters.
+Interactive widgets with 3-layer architecture (ADR-003), keyboard focus management,
+CDK foundation, overlay infrastructure, and Material Design 3 theming with pluggable painters.
 
 #### Added
 
@@ -119,9 +124,9 @@ CDK foundation, and Material Design 3 theming with pluggable painters.
 
 #### Statistics
 
-- **New tests:** 280+ (core/button: 75+, core/checkbox: 40+, core/radio: 40+, focus: 44, material3: 50+, cdk: 15)
-- **Total tests:** 1,300+
-- **Total packages:** 23
+- **New tests:** 440+ (core/button: 75+, core/checkbox: 40+, core/radio: 40+, core/textfield: 55, core/dropdown: 55, overlay: 30+, focus: 44, material3: 50+, cdk: 15, themescope: 22)
+- **Total tests:** 1,500+
+- **Total packages:** 25
 
 ---
 
