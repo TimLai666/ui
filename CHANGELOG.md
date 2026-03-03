@@ -18,9 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WindowSize on Context** (`widget/context.go`) — `WindowSize()` method for overlay positioning calculations
 
 ### Changed
-- **Update gg v0.32.0 → v0.32.5** — includes MSL backend fixes for Apple Silicon,
-  text rendering fixes, and Linux/macOS SIGSEGV fix for Vulkan functions with >6 arguments
-  ([naga#38](https://github.com/gogpu/naga/pull/38),
+- **Update gg v0.32.0 → v0.33.0** — includes image clipping (image-as-shader pattern),
+  anti-aliased clip masks (4x Y-supersampling), DrawImageRounded/DrawImageCircular convenience
+  methods, MSL backend fixes for Apple Silicon, and Linux/macOS SIGSEGV fix
+  ([gg#155](https://github.com/gogpu/gg/issues/155),
+  [naga#38](https://github.com/gogpu/naga/pull/38),
   [ui#23](https://github.com/gogpu/ui/issues/23),
   [goffi#19](https://github.com/go-webgpu/goffi/issues/19))
 - **Multi-layer box shadow** — Material Design elevation now uses 3-4 concentric semi-transparent rounded rects (approximated Gaussian blur) instead of single flat rectangle. Levels 1-5 with progressive elevation
