@@ -35,10 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Box shadow direction** — shadow offset now includes horizontal component matching Material Design light source
 
 ### Dependencies
-- gg v0.29.0 → v0.32.0 (smart rasterizer selection, Vulkan copy stride fix, text API redesign)
-- gogpu v0.19.6 → v0.22.1 (Vulkan copy stride fix, X11 multi-touch, Wayland support)
-- wgpu v0.16.9 → v0.18.1 (Vulkan copy stride fix, public API root package)
-- naga v0.14.1 → v0.14.3
+- gg v0.29.0 → v0.33.1 (smart rasterizer selection, image clipping, AA clip masks, FDot16 overflow fix, aaShift=2)
+- gogpu v0.19.6 → v0.22.6 (Vulkan copy stride fix, X11 multi-touch, Wayland support, Metal vertex descriptor fix)
+- wgpu v0.16.9 → v0.19.5 (Metal vertex descriptor, Vulkan surface validation, public API root package)
+- naga v0.14.1 → v0.14.5
 
 ### Phase 2: Interactive Widgets (Complete — 16/16 tasks)
 
