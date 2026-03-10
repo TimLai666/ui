@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Disabled background changed to visible light gray (`RGBA 0.92`)
 
 ### Dependencies
+- gg v0.33.5 → v0.33.6, gogpu v0.22.9 → v0.22.11, wgpu v0.20.0, gputypes v0.3.0
+  (wgpu enterprise-grade validation layer: core validation, typed errors, deferred errors)
 - gg v0.33.3 → v0.33.5 (per-batch GPU text color fix — each DrawText call now
   renders with its own color instead of all text sharing the first call's color)
 
