@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Signal Lifecycle — SIGNALS-006/007/008)
+- **Automatic signal binding lifecycle** — widgets with signal bindings now
+  auto-subscribe on mount and auto-cleanup on unmount (no memory leaks):
+  - `widget.Lifecycle` interface (`Mount(ctx)` / `Unmount()`) — opt-in for widgets with signals
+  - `widget.SchedulerRef` interface — avoids circular imports between widget and state
+  - `WidgetBase.AddBinding()` / `AddEffect()` / `CleanupBindings()` — binding management
+  - `widget.MountTree()` / `UnmountTree()` — recursive tree lifecycle helpers
+  - `Window.SetRoot()` triggers mount/unmount automatically
+- **Scheduler push-based invalidation** — `Scheduler.SetOnDirty()` callback wakes
+  render loop via `RequestRedraw()` when signals change. Reflush loop protection
+  (max 2 re-flushes per frame) prevents infinite loops
+- **ReadonlySignal widget options** — computed signals (`state.NewComputed()`) can
+  now be passed to widgets:
+  - button: `TextReadonlySignal`, `DisabledReadonlySignal`
+  - checkbox: `LabelReadonlySignal`, `DisabledReadonlySignal`
+  - radio: `GroupDisabledReadonlySignal`
+  - Priority: ReadonlySignal > Signal > Fn > Static
+- **All 6 widget types implement Lifecycle** — button, checkbox, radio, textfield,
+  dropdown, primitives/text auto-bind signals on mount
+
 ### Added (Examples)
 - **Signals demo** (`examples/signals/`) — standalone example demonstrating all signal
   features: TextSignal, ContentSignal, CheckedSignal, SelectedSignal, DisabledSignal.
@@ -18,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Disabled background changed to visible light gray (`RGBA 0.92`)
 
 ### Dependencies
+- gg v0.33.5 → v0.34.0, gogpu v0.22.11 → v0.23.0 (HiDPI support)
 - gg v0.33.5 → v0.33.6, gogpu v0.22.9 → v0.22.11, wgpu v0.20.0, gputypes v0.3.0
   (wgpu enterprise-grade validation layer: core validation, typed errors, deferred errors)
 - gg v0.33.3 → v0.33.5 (per-batch GPU text color fix — each DrawText call now

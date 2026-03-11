@@ -106,7 +106,7 @@ func main() {
 |---------|-------------|----------|
 | `geometry` | Point, Size, Rect, Constraints, Insets | 98.8% |
 | `event` | MouseEvent, KeyEvent, WheelEvent, FocusEvent, Modifiers | 100% |
-| `widget` | Widget interface, WidgetBase, Context, Canvas, Color, ThemeProvider | 100% |
+| `widget` | Widget, WidgetBase, Context, Canvas, Lifecycle (mount/unmount), SchedulerRef | 100% |
 | `internal/render` | Canvas implementation using gogpu/gg | 96.5% |
 | `internal/layout` | Flex, Stack, Grid layout engines | 89.9% |
 
@@ -115,7 +115,7 @@ func main() {
 | Package | Description | Coverage |
 |---------|-------------|----------|
 | `a11y` | Accessibility: 35+ ARIA roles, Accessible interface, Tree, Announcer | 99.1% |
-| `state` | Reactive signals (coregx/signals), Binding, Scheduler with batching | 100% |
+| `state` | Reactive signals, Binding, Scheduler with push-based invalidation | 100% |
 | `primitives` | Box, Text, Image widgets with fluent builder API | 94.4% |
 | `app` | Window integration via gpucontext interfaces (dependency inversion) | 98.6% |
 
@@ -176,8 +176,8 @@ func main() {
 │  (Complete ✅)     │  (Complete ✅) │  (Complete ✅)       │
 ├─────────────────────────────────────────────────────────────┤
 │  layout/           │  state/                                │
-│  VStack, HStack,   │  Signals, Binding,                     │
-│  Grid, Flexbox     │  Scheduler                             │
+│  VStack, HStack,   │  Signals, Binding, Lifecycle,           │
+│  Grid, Flexbox     │  Scheduler (push-pull)                  │
 │  (Complete ✅)     │  (Complete ✅)                        │
 ├─────────────────────────────────────────────────────────────┤
 │  widget/           │  event/         │  geometry/           │
