@@ -29,7 +29,7 @@
 |         Layer 1: Foundation                                  |
 | widget/                              |  event/               |
 | Widget, WidgetBase, Context, Canvas  |  Mouse, Key, Wheel    |
-| Focusable, ThemeProvider, Color      |  Focus, Modifiers     |
+| Focusable, Lifecycle, SchedulerRef   |  Focus, Modifiers     |
 +--------------------------------------+-----------------------+
 | geometry/                                                    |
 | Point, Size, Rect, Constraints, Insets                       |
@@ -37,7 +37,7 @@
 |                    Infrastructure                            |
 | focus/           |  layout/          |  state/               |
 | Focus Manager    |  Flex, Stack, Grid|  Signals, Binding     |
-| (delegation)     |  (public API)     |  Computed, Effect     |
+| (delegation)     |  (public API)     |  Scheduler, Lifecycle |
 +------------------+-------------------+-----------------------+
 | a11y/            |  registry/        |  plugin/              |
 | Accessible       |  Widget Registry  |  Plugin System        |
@@ -66,7 +66,7 @@
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `widget/` | Core widget abstractions | `Widget`, `WidgetBase`, `Context`, `Canvas`, `Focusable`, `ThemeProvider`, `Color` |
+| `widget/` | Core widget abstractions | `Widget`, `WidgetBase`, `Context`, `Canvas`, `Focusable`, `Lifecycle`, `SchedulerRef`, `ThemeProvider`, `Color` |
 | `event/` | Input event types | `MouseEvent`, `KeyEvent`, `FocusEvent`, `WheelEvent`, `Modifiers` |
 | `geometry/` | Geometric primitives | `Point`, `Size`, `Rect`, `Constraints`, `Insets` |
 
@@ -100,7 +100,7 @@
 | `overlay/` | Overlay/popup infrastructure | `Stack`, `Container`, `Position` |
 | `focus/` | Focus management (public API) | `Manager`, `Shortcut`, `DrawFocusRing` |
 | `layout/` | Layout tree and algorithms | `NodeID`, `NodeLayout`, `Result`, `Algorithm` |
-| `state/` | Reactive state (signals integration) | `Signal`, `ReadonlySignal`, `Computed`, `Effect`, `Binding`, `Scheduler` |
+| `state/` | Reactive state with push-pull lifecycle | `Signal`, `ReadonlySignal`, `Computed`, `Effect`, `Binding`, `Scheduler` |
 | `theme/` | Base theme system | `Theme`, `ColorPalette`, `Typography`, `SpacingScale`, `ShadowStyles`, `RadiusScale` |
 | `a11y/` | Accessibility | `Accessible`, `Node`, `NodeID`, `Role`, `State`, `Action`, `Tree` |
 | `app/` | Window integration | `App`, `Window`, `EventBridge`, `FrameStats` |
@@ -143,7 +143,7 @@ There is no Prepaint/Paint two-phase rendering. Drawing happens in a single Draw
 
 ### WidgetBase
 
-`WidgetBase` (`widget/base.go`) provides common functionality via embedding. Fields are plain types, not signals:
+`WidgetBase` (`widget/base.go`) provides common functionality via embedding:
 
 ```go
 // widget/base.go
@@ -156,6 +156,9 @@ type WidgetBase struct {
     id       string         // Optional ID for debugging
     children []Widget       // Child widgets
     parent   Widget         // Parent widget (if any)
+    bindings []Unbinder     // Signal bindings (cleaned up on unmount)
+    effects  []Stopper      // Effects (stopped on unmount)
+    mounted  bool           // Whether widget is currently in the mounted tree
 }
 ```
 
@@ -167,6 +170,7 @@ All state access is protected by a `sync.RWMutex`. WidgetBase provides:
 - Child management (`AddChild`, `RemoveChild`, `InsertChild`, `ClearChildren`, `ChildAt`, `ChildCount`)
 - Hit testing (`ContainsPoint`)
 - Coordinate conversion (`LocalToGlobal`, `GlobalToLocal`)
+- Signal binding lifecycle (`AddBinding`, `AddEffect`, `CleanupBindings`, `IsMounted`, `SetMounted`)
 
 Defaults: visible = true, enabled = true.
 
@@ -189,6 +193,14 @@ type Context interface {
     SetCursor(cursor CursorType)
     Scale() float32
     ThemeProvider() ThemeProvider
+    OverlayManager() OverlayManager
+    WindowSize() geometry.Size
+    Scheduler() SchedulerRef
+}
+
+// SchedulerRef avoids circular imports between widget and state.
+type SchedulerRef interface {
+    MarkDirty(w Widget)
 }
 ```
 
@@ -199,6 +211,7 @@ The concrete implementation `ContextImpl` provides thread-safe focus management,
 - `ResetCursor()` -- Resets cursor to default at frame start
 - `SetOnInvalidate(func())` -- Callback when `Invalidate()` is called
 - `SetThemeProvider(ThemeProvider)` -- Sets the active theme provider (wired by `app/window.go`)
+- `SetScheduler(SchedulerRef)` -- Sets the signal scheduler (wired by `app/window.go`)
 
 ### Canvas Interface
 
@@ -434,7 +447,7 @@ type config struct {
 }
 ```
 
-`ResolvedText()` and `ResolvedDisabled()` prefer the function over the static value.
+`ResolvedText()` and `ResolvedDisabled()` use priority: ReadonlySignal > Signal > Fn > Static.
 
 ### Interface Compliance
 
@@ -593,7 +606,9 @@ The frame cycle in `app/Window.Frame()`:
 ```
 1. Update time (ctx.SetNow)
 2. Reset cursor to default
-3. Flush pending state changes (scheduler.Flush)
+3. Flush pending signal changes (reflush loop, max 2 re-flushes)
+   - scheduler.Flush() processes dirty widgets from signal changes
+   - If flush triggers new signal changes, re-flush (up to 2 times)
 4. Update DPI scale factor
 5. Update window size from provider
 6. Layout pass (if needsLayout flag is set)
@@ -608,6 +623,27 @@ The frame cycle in `app/Window.Frame()`:
 ```
 
 There is no Prepaint pass. The render loop is two-phase: Layout then Draw.
+
+### Widget Lifecycle (Mount/Unmount)
+
+Widgets that use signal bindings implement the optional `Lifecycle` interface:
+
+```go
+// widget/lifecycle.go
+type Lifecycle interface {
+    Mount(ctx Context)   // Called when added to tree — create signal bindings
+    Unmount()            // Called when removed — cleanup (bindings auto-cleaned)
+}
+```
+
+The framework manages lifecycle automatically:
+
+- `Window.SetRoot(w)` calls `UnmountTree(oldRoot)` then `MountTree(newRoot, ctx)`
+- `MountTree` walks the widget tree recursively, calling `Mount(ctx)` on each `Lifecycle` implementor
+- `UnmountTree` walks bottom-up, calling `CleanupBindings()` then `Unmount()` on each widget
+- Widgets without signals need not implement `Lifecycle` — they are unaffected
+
+All 6 widget types implement `Lifecycle`: button, checkbox, radio, textfield, dropdown, primitives/text.
 
 ### Canvas Implementation
 
@@ -687,7 +723,7 @@ When the signal changes, the widget's context is invalidated, marking it for re-
 
 ### Scheduler
 
-`Scheduler` batches widget re-render requests:
+`Scheduler` batches widget re-render requests with push-based invalidation:
 
 ```go
 sched := state.NewScheduler(func(dirty []widget.Widget) {
@@ -698,6 +734,12 @@ sched.Flush() // Calls flush function with deduplicated widget list
 ```
 
 Supports explicit batching via `Batch` method. Instance-based (no global state), thread-safe.
+
+**Push-based invalidation:** `SetOnDirty(fn)` registers a callback fired when the pending set transitions from empty to non-empty. In `app/Window`, this is wired to `RequestRedraw()` — the render loop wakes up only when signals actually change.
+
+**Reflush protection:** `Frame()` calls `Flush()` in a loop (max 2 re-flushes) to drain widgets that become dirty during flush callbacks. This prevents infinite loops from circular signal dependencies.
+
+`Scheduler` satisfies the `widget.SchedulerRef` interface (`MarkDirty(Widget)`).
 
 ### Widget Signal Bindings
 
@@ -732,17 +774,34 @@ cb := checkbox.New(
 | Widget | Option | Type | Binding |
 |--------|--------|------|---------|
 | `button` | `TextSignal` | `Signal[string]` | one-way |
+| `button` | `TextReadonlySignal` | `ReadonlySignal[string]` | one-way |
 | `button` | `DisabledSignal` | `Signal[bool]` | one-way |
+| `button` | `DisabledReadonlySignal` | `ReadonlySignal[bool]` | one-way |
 | `checkbox` | `CheckedSignal` | `Signal[bool]` | two-way |
 | `checkbox` | `LabelSignal` | `Signal[string]` | one-way |
+| `checkbox` | `LabelReadonlySignal` | `ReadonlySignal[string]` | one-way |
 | `checkbox` | `DisabledSignal` | `Signal[bool]` | one-way |
+| `checkbox` | `DisabledReadonlySignal` | `ReadonlySignal[bool]` | one-way |
 | `radio` | `SelectedSignal` | `Signal[string]` | two-way |
 | `radio` | `GroupDisabledSignal` | `Signal[bool]` | one-way |
+| `radio` | `GroupDisabledReadonlySignal` | `ReadonlySignal[bool]` | one-way |
 | `textfield` | `ValueSignal` | `Signal[string]` | two-way |
 | `dropdown` | `SelectedSignal` | `Signal[int]` | two-way |
 | `primitives/text` | `ContentSignal` | `ReadonlySignal[string]` | one-way |
 
-Priority resolution: Signal > Fn > Static.
+Priority resolution: ReadonlySignal > Signal > Fn > Static.
+
+`ReadonlySignal` variants enable computed properties (via `state.NewComputed()`) to drive widget state. Two-way binding signals (CheckedSignal, SelectedSignal, ValueSignal) do not have readonly variants since the widget writes back to them.
+
+### Signal Lifecycle (Hybrid Push-Pull)
+
+All widgets with signal bindings implement `widget.Lifecycle`. On `Mount(ctx)`, each widget creates `BindToScheduler` subscriptions for its signals. On `Unmount()`, bindings are cleaned up automatically via `WidgetBase.CleanupBindings()`.
+
+**Push path:** `Signal.Set()` -> subscriber callback -> `Scheduler.MarkDirty(widget)` -> `SetOnDirty` callback -> `RequestRedraw()` -> next frame starts
+
+**Pull path:** Widget reads `signal.Get()` lazily during `Layout()` / `Draw()` — value is always current
+
+This hybrid push-pull model (inspired by Angular Signals) eliminates the diamond problem, prevents glitch states, and reduces unnecessary frames to zero when no signals change.
 
 ---
 
@@ -1016,7 +1075,7 @@ The `registry/` package provides a global registry for widget factories:
 
 | Dependency | Purpose | Version |
 |------------|---------|---------|
-| `github.com/gogpu/gg` | 2D graphics backend for Canvas | v0.32.0 |
+| `github.com/gogpu/gg` | 2D graphics backend for Canvas | v0.34.0 |
 | `github.com/gogpu/gpucontext` | Window/Platform provider interfaces | v0.9.0 |
 | `github.com/coregx/signals` | Reactive state management | v0.1.0 |
 | `golang.org/x/image` | Standard Go fonts (goregular, gobold) | v0.36.0 |
@@ -1073,14 +1132,28 @@ Generic widgets in `core/` define behavior and delegate visual rendering to a `P
 
 This lets the same widget render as Material 3, Fluent, or Cupertino by swapping the Painter. Colors flow as a value struct (`ButtonColorScheme`) -- no import cycle between `core/` and `theme/`.
 
-### 6. Thread Safety via Mutexes
+### 6. Opt-in Lifecycle for Signal Binding
+
+Widgets that use reactive signals implement `Lifecycle` (opt-in via type assertion). This follows the Flutter `initState`/`dispose` pattern — explicit lifecycle hooks for resource management:
+
+```go
+if lc, ok := w.(widget.Lifecycle); ok {
+    lc.Mount(ctx)   // Subscribe to signals
+    // later...
+    lc.Unmount()    // Unsubscribe (auto via CleanupBindings)
+}
+```
+
+Widgets without signals are unaffected — no performance cost, no code changes.
+
+### 7. Thread Safety via Mutexes
 
 `WidgetBase` and `ContextImpl` use `sync.RWMutex` for state protection. Canvas and Renderer are NOT thread-safe and must be used from the UI thread.
 
-### 7. Value Semantics for Geometry
+### 8. Value Semantics for Geometry
 
 All types in `geometry/` are small structs passed by value. Operations return new values without modifying the receiver. No heap allocations in hot paths.
 
 ---
 
-*This document reflects the actual codebase as of March 1, 2026.*
+*This document reflects the actual codebase as of March 11, 2026.*
