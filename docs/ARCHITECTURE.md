@@ -645,6 +645,47 @@ The framework manages lifecycle automatically:
 
 All 6 widget types implement `Lifecycle`: button, checkbox, radio, textfield, dropdown, primitives/text.
 
+### Retained-Mode Rendering
+
+The framework uses a hybrid immediate/retained rendering model with three
+levels of optimization:
+
+**Level 1: Frame-level skip (implemented)**
+When no widget in the tree has its `needsRedraw` flag set, `Window.DrawTo()`
+returns `false` and the host application reuses the previous frame's GPU
+framebuffer. This means idle UIs consume zero CPU for the draw phase.
+
+**Level 2: Draw statistics (implemented)**
+`widget.DrawTree()` performs the draw traversal and collects per-widget
+`DrawStats` (dirty, clean, skipped, total counts). These stats are exposed
+via `FrameStats.DrawStats` for performance monitoring and validation.
+
+**Level 3: Per-widget pixel caching (planned, Sub-Phase 2)**
+Clean subtrees will be composited from cached textures instead of re-drawn.
+This is the RepaintBoundary pattern from Flutter.
+
+The dirty-tracking flow:
+
+```
+Signal.Set(value)
+  -> BindToScheduler -> Scheduler.MarkDirty(widget)
+    -> Scheduler.SetOnDirty callback -> RequestRedraw()
+      -> Frame()
+        -> scheduler.Flush() -> flushFn sets needsRedraw on dirty widgets
+        -> Layout pass (if needed, also marks all widgets dirty)
+        -> Draw pass: DrawTree(root, ctx, canvas) -> DrawStats
+          - Draws root widget (which draws children)
+          - Collects dirty/clean/skipped counts
+          - ClearRedrawInTree() clears all flags after draw
+```
+
+Key functions:
+- `widget.DrawTree(w, ctx, canvas)` -- draws root, returns `DrawStats`
+- `widget.CollectDrawStats(w)` -- walks tree without drawing, returns stats
+- `widget.NeedsRedrawInTree(w)` -- short-circuit check for any dirty widget
+- `widget.ClearRedrawInTree(w)` -- clears all flags recursively
+- `widget.MarkRedrawInTree(w)` -- marks all widgets dirty (used by resize, theme change)
+
 ### Canvas Implementation
 
 `internal/render/Canvas` wraps `gg.Context` (gogpu/gg 2D rasterizer):

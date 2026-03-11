@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Retained-Mode Rendering — TASK-UI-057 Sub-Phase 1)
+- **Draw tree traversal with statistics** — `widget.DrawTree()` draws the root widget
+  and collects per-widget dirty/clean statistics via `widget.DrawStats`
+- **Draw statistics collection** — `widget.CollectDrawStats()` walks the tree without
+  drawing, reporting dirty, clean, skipped, and total widget counts (for diagnostics)
+- **FrameStats.DrawStats** — per-widget draw statistics are now included in
+  `app.FrameStats`, accessible via frame callback for performance monitoring
+- **Window.LastDrawStats()** — accessor for the most recent draw traversal statistics
+- **Window.DrawTo() uses DrawTree** — the draw pass now collects statistics during
+  rendering, providing observability into the retained-mode dirty-tracking system
+
 ### Added (Signal Lifecycle — SIGNALS-006/007/008)
 - **Automatic signal binding lifecycle** — widgets with signal bindings now
   auto-subscribe on mount and auto-cleanup on unmount (no memory leaks):

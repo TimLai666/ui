@@ -91,8 +91,17 @@ func New(opts ...Option) *App {
 		theme: t,
 	}
 
-	// Create scheduler that requests redraw on flush.
-	a.scheduler = state.NewScheduler(func(_ []widget.Widget) {
+	// Create scheduler that marks dirty widgets for retained-mode rendering
+	// and requests a redraw.
+	a.scheduler = state.NewScheduler(func(dirty []widget.Widget) {
+		// Set persistent needsRedraw flag on each dirty widget.
+		// This flag survives until the draw pass clears it,
+		// unlike the scheduler's pending set which is cleared on flush.
+		for _, w := range dirty {
+			if setter, ok := w.(interface{ SetNeedsRedraw(bool) }); ok {
+				setter.SetNeedsRedraw(true)
+			}
+		}
 		if a.window != nil && a.window.wp != nil {
 			a.window.wp.RequestRedraw()
 		}

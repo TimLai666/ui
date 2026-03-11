@@ -1,6 +1,10 @@
 package app
 
-import "time"
+import (
+	"time"
+
+	"github.com/gogpu/ui/widget"
+)
 
 // FrameStats holds timing information for a single frame.
 //
@@ -23,6 +27,26 @@ type FrameStats struct {
 
 	// LayoutPerformed indicates whether layout was recalculated this frame.
 	LayoutPerformed bool
+
+	// DrawSkipped indicates that the draw pass was skipped because no
+	// widgets in the tree needed re-rendering. When true, the host
+	// application can reuse the previous frame's GPU framebuffer output.
+	//
+	// This is the primary retained-mode optimization: idle UIs skip
+	// rendering entirely, consuming zero CPU for the draw phase.
+	DrawSkipped bool
+
+	// DrawStats provides per-widget statistics from the draw traversal.
+	//
+	// When DrawSkipped is true, DrawStats is zero-valued (no traversal
+	// was performed). When DrawSkipped is false, DrawStats shows how many
+	// widgets were drawn, how many were dirty vs clean, and how many were
+	// skipped due to invisibility.
+	//
+	// This is primarily useful for performance monitoring and for
+	// validating that the retained-mode dirty-tracking system is
+	// working correctly.
+	DrawStats widget.DrawStats
 }
 
 // FrameCallback is called after each frame completes with timing statistics.

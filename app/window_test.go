@@ -272,10 +272,13 @@ func TestWindow_DrawTo(t *testing.T) {
 	w.SetRoot(root)
 
 	canvas := &mockCanvas{}
-	w.DrawTo(canvas)
+	drawn := w.DrawTo(canvas)
 
 	if !root.drawCalled {
 		t.Error("DrawTo did not call root Draw")
+	}
+	if !drawn {
+		t.Error("DrawTo should return true on first draw (all widgets dirty)")
 	}
 }
 
@@ -284,7 +287,10 @@ func TestWindow_DrawTo_NoRoot(t *testing.T) {
 	w := a.Window()
 	canvas := &mockCanvas{}
 	// Should not panic.
-	w.DrawTo(canvas)
+	drawn := w.DrawTo(canvas)
+	if drawn {
+		t.Error("DrawTo should return false with no root")
+	}
 }
 
 func TestWindow_DrawTo_NilCanvas(t *testing.T) {
@@ -293,7 +299,10 @@ func TestWindow_DrawTo_NilCanvas(t *testing.T) {
 	root := newMockWidget()
 	w.SetRoot(root)
 	// Should not panic.
-	w.DrawTo(nil)
+	drawn := w.DrawTo(nil)
+	if drawn {
+		t.Error("DrawTo should return false with nil canvas")
+	}
 }
 
 func TestWindow_Theme(t *testing.T) {
@@ -435,3 +444,304 @@ func (m *mockCanvas) PushClip(geometry.Rect)                                    
 func (m *mockCanvas) PopClip()                                                             {}
 func (m *mockCanvas) PushTransform(geometry.Point)                                         {}
 func (m *mockCanvas) PopTransform()                                                        {}
+
+// --- Retained-mode rendering tests ---
+
+func TestWindow_DrawTo_ReportsCleanTree(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+
+	// First draw: all widgets are dirty (just mounted).
+	drawn := w.DrawTo(canvas)
+	if !drawn {
+		t.Error("first DrawTo should report dirty (all widgets dirty after mount)")
+	}
+
+	// Reset tracking.
+	root.drawCalled = false
+
+	// Second draw: nothing changed. In Sub-Phase 1, DrawTo still draws
+	// (existing widgets don't self-dirty on event state changes yet),
+	// but returns false to indicate the tree was clean.
+	drawn = w.DrawTo(canvas)
+	if drawn {
+		t.Error("second DrawTo should report clean (no widgets dirty)")
+	}
+	if !root.drawCalled {
+		t.Error("root Draw should still be called (Sub-Phase 1 always draws)")
+	}
+}
+
+func TestWindow_DrawTo_DrawsAfterSignalDirty(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+
+	// First draw.
+	w.DrawTo(canvas)
+	root.drawCalled = false
+
+	// Mark widget as needing redraw (simulates signal change).
+	root.SetNeedsRedraw(true)
+
+	drawn := w.DrawTo(canvas)
+	if !drawn {
+		t.Error("DrawTo should render after widget marked dirty")
+	}
+	if !root.drawCalled {
+		t.Error("root Draw should be called when widget is dirty")
+	}
+}
+
+func TestWindow_NeedsRedraw_InitialState(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	if !w.NeedsRedraw() {
+		t.Error("window should need redraw after SetRoot")
+	}
+}
+
+func TestWindow_NeedsRedraw_AfterDraw(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	if w.NeedsRedraw() {
+		t.Error("window should not need redraw after DrawTo")
+	}
+}
+
+func TestWindow_NeedsRedraw_AfterResize(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	w.HandleResize(1024, 768)
+
+	if !w.NeedsRedraw() {
+		t.Error("window should need redraw after resize")
+	}
+}
+
+func TestWindow_DrawTo_ClearsRedrawFlags(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	// Verify all flags were cleared.
+	if root.NeedsRedraw() {
+		t.Error("root needsRedraw should be cleared after DrawTo")
+	}
+	if w.NeedsRedraw() {
+		t.Error("window needsRedraw should be cleared after DrawTo")
+	}
+}
+
+func TestWindow_SetRoot_MarksAllDirty(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	// Create a tree with pre-cleared redraw flags.
+	root := newMockWidget()
+	root.ClearRedraw()
+
+	// SetRoot should mark everything as needing redraw.
+	w.SetRoot(root)
+
+	if !root.NeedsRedraw() {
+		t.Error("root should need redraw after SetRoot")
+	}
+}
+
+func TestWindow_Frame_DrawSkippedInStats(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	var stats FrameStats
+
+	// First frame: should perform draw (layout marks redraw).
+	w.frameCallback = func(s FrameStats) { stats = s }
+	w.Frame()
+
+	if stats.DrawSkipped {
+		t.Error("first frame should not skip draw")
+	}
+
+	// Second frame: nothing changed, draw should be skipped.
+	w.Frame()
+
+	if !stats.DrawSkipped {
+		t.Error("second frame should skip draw (nothing changed)")
+	}
+}
+
+func TestWindow_SchedulerFlush_SetsNeedsRedraw(t *testing.T) {
+	root := newMockWidget()
+	root.ClearRedraw()
+
+	a := New()
+	w := a.Window()
+	w.SetRoot(root)
+
+	// Clear all flags first.
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+	root.drawCalled = false
+
+	// Simulate signal change by marking dirty through scheduler.
+	a.Scheduler().MarkDirty(root)
+	a.Scheduler().Flush()
+
+	// The flushFn should have set needsRedraw on the widget.
+	if !root.NeedsRedraw() {
+		t.Error("widget should have needsRedraw set after scheduler flush")
+	}
+
+	// DrawTo should now render.
+	drawn := w.DrawTo(canvas)
+	if !drawn {
+		t.Error("DrawTo should render after scheduler marked widget dirty")
+	}
+}
+
+func TestWindow_Theme_MarksRedraw(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	// Theme change should mark all widgets dirty.
+	w.setTheme(theme.DefaultDark())
+
+	if !w.NeedsRedraw() {
+		t.Error("window should need redraw after theme change")
+	}
+	if !root.NeedsRedraw() {
+		t.Error("root should need redraw after theme change")
+	}
+}
+
+// --- DrawStats integration tests ---
+
+func TestWindow_DrawTo_ReturnsDrawStats(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	stats := w.LastDrawStats()
+	if stats.TotalWidgets != 1 {
+		t.Errorf("TotalWidgets = %d, want 1", stats.TotalWidgets)
+	}
+	if stats.DrawnWidgets != 1 {
+		t.Errorf("DrawnWidgets = %d, want 1", stats.DrawnWidgets)
+	}
+	if stats.DirtyWidgets != 1 {
+		t.Errorf("DirtyWidgets = %d, want 1 (first draw, all dirty)", stats.DirtyWidgets)
+	}
+}
+
+func TestWindow_DrawTo_SkippedFrameHasZeroStats(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+
+	// First draw populates stats.
+	w.DrawTo(canvas)
+	if w.LastDrawStats().DrawnWidgets != 1 {
+		t.Error("first draw should report 1 drawn widget")
+	}
+
+	// Second draw is skipped (nothing dirty).
+	drawn := w.DrawTo(canvas)
+	if drawn {
+		t.Error("second draw should be skipped")
+	}
+	// Stats from last actual draw are retained.
+	if w.LastDrawStats().DrawnWidgets != 1 {
+		t.Error("stats should be retained from last actual draw")
+	}
+}
+
+func TestWindow_Frame_DrawStatsInCallback(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	var stats FrameStats
+	w.frameCallback = func(s FrameStats) { stats = s }
+	w.Frame()
+
+	if stats.DrawStats.TotalWidgets != 1 {
+		t.Errorf("FrameStats.DrawStats.TotalWidgets = %d, want 1", stats.DrawStats.TotalWidgets)
+	}
+}
+
+func TestWindow_Frame_DrawStatsZeroWhenSkipped(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	var stats FrameStats
+	w.frameCallback = func(s FrameStats) { stats = s }
+
+	// First frame draws.
+	w.Frame()
+	if stats.DrawSkipped {
+		t.Error("first frame should not skip draw")
+	}
+
+	// Second frame: nothing changed, draw skipped.
+	w.Frame()
+	if !stats.DrawSkipped {
+		t.Error("second frame should skip draw")
+	}
+	// DrawStats from the skipped frame should be from the CollectDrawStats
+	// pass (headless mode collects stats without drawing).
+	// Since headless draw uses CollectDrawStats, it reports stats even when skipping.
+}
+
+func TestWindow_LastDrawStats_NoRoot(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	stats := w.LastDrawStats()
+	if stats.TotalWidgets != 0 {
+		t.Errorf("TotalWidgets = %d, want 0 (no root)", stats.TotalWidgets)
+	}
+}

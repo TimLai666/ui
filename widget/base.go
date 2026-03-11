@@ -28,6 +28,7 @@ type Stopper interface {
 //   - Child widget management
 //   - Optional ID for debugging
 //   - Signal binding lifecycle management
+//   - Retained-mode redraw tracking
 //
 // Example usage:
 //
@@ -50,17 +51,18 @@ type Stopper interface {
 // should occur on the main/UI thread. The mutex is provided for cases
 // where properties need to be queried from callbacks.
 type WidgetBase struct {
-	mu       sync.RWMutex
-	bounds   geometry.Rect // Cached layout bounds
-	focused  bool          // Whether widget has focus
-	visible  bool          // Whether widget is visible
-	enabled  bool          // Whether widget accepts input
-	id       string        // Optional ID for debugging
-	children []Widget      // Child widgets
-	parent   Widget        // Parent widget (if any)
-	bindings []Unbinder    // Signal bindings (cleaned up on unmount)
-	effects  []Stopper     // Effects (stopped on unmount)
-	mounted  bool          // Whether widget is currently mounted
+	mu          sync.RWMutex
+	bounds      geometry.Rect // Cached layout bounds
+	focused     bool          // Whether widget has focus
+	visible     bool          // Whether widget is visible
+	enabled     bool          // Whether widget accepts input
+	needsRedraw bool          // Whether widget needs re-rendering (retained mode)
+	id          string        // Optional ID for debugging
+	children    []Widget      // Child widgets
+	parent      Widget        // Parent widget (if any)
+	bindings    []Unbinder    // Signal bindings (cleaned up on unmount)
+	effects     []Stopper     // Effects (stopped on unmount)
+	mounted     bool          // Whether widget is currently mounted
 }
 
 // NewWidgetBase creates a new WidgetBase with default settings.
@@ -69,8 +71,9 @@ type WidgetBase struct {
 // and zero bounds.
 func NewWidgetBase() *WidgetBase {
 	return &WidgetBase{
-		visible: true,
-		enabled: true,
+		visible:     true,
+		enabled:     true,
+		needsRedraw: true,
 	}
 }
 
@@ -364,6 +367,43 @@ func (w *WidgetBase) SetMounted(m bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.mounted = m
+}
+
+// NeedsRedraw reports whether the widget needs re-rendering.
+//
+// This flag is set by the signal scheduler when a bound signal changes,
+// and cleared after the widget is drawn. It persists across scheduler
+// flushes, surviving until the actual draw pass processes it.
+//
+// This is part of the retained-mode rendering system: widgets marked
+// as needing redraw will trigger a full draw pass, while a tree with
+// no dirty widgets allows the frame to skip rendering entirely.
+func (w *WidgetBase) NeedsRedraw() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.needsRedraw
+}
+
+// SetNeedsRedraw marks the widget as needing re-rendering.
+//
+// This is called by the signal scheduler's flush callback when a widget's
+// bound signal has changed. Unlike the scheduler's pending set (which is
+// cleared on flush), this flag persists until the draw pass clears it
+// via [WidgetBase.ClearRedraw].
+func (w *WidgetBase) SetNeedsRedraw(v bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.needsRedraw = v
+}
+
+// ClearRedraw clears the widget's needsRedraw flag after a successful draw.
+//
+// This should be called by the rendering system after the widget has been
+// drawn, to indicate that its visual state is now up to date.
+func (w *WidgetBase) ClearRedraw() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.needsRedraw = false
 }
 
 // AddBinding registers a signal binding for automatic cleanup on unmount.
