@@ -287,13 +287,13 @@ v1.0.0  → Production (when ready)
 | ~~TASK-UI-026~~ | Dialog/Modal (backdrop overlay, action buttons, focus trapping, M3 painter) | ✅ Done |
 | ~~TASK-UI-024~~ | Animation Engine (tween, spring, CubicBezier, M3 tokens, Tween[T], Sequence/Parallel) | ✅ Done |
 | ~~TASK-UI-028~~ | ScrollView (vertical/horizontal/both, wheel+keyboard+drag, signal bindings, M3 painter) | ✅ Done |
+| ~~TASK-UI-029~~ | TabView (tabbed navigation, lazy content, closeable, keyboard nav, M3 painter) | ✅ Done |
 
 **Remaining:**
 
 | Task | Description | LOC | Priority |
 |------|-------------|-----|----------|
 | TASK-UI-057 SP3 | scene.Scene integration (tile-parallel rendering) | ~700 | P0 |
-| TASK-UI-029 | TabView | ~500 | P1 |
 | TASK-UI-016 | Progress Indicators | ~500 | P2 |
 | TASK-UI-021 | VirtualizedList | ~1,500 | P0 |
 | TASK-UI-022 | VirtualizedGrid | ~800 | P1 |
@@ -308,7 +308,7 @@ v1.0.0  → Production (when ready)
 - Animation system (Spring, Tween)
 - Additional widgets (Slider ✅, Dialog ✅, Progress, Tooltip)
 - Animation system ✅ (Tween, Spring, M3 motion, CubicBezier, Sequence/Parallel)
-- Containers (ScrollView ✅, TabView, SplitView)
+- Containers (ScrollView ✅, TabView ✅, SplitView)
 - Virtualization for large datasets
 
 ---
@@ -350,7 +350,7 @@ v1.0.0  → Production (when ready)
 | Phase 1.5 (Extensibility) | 6 | ~9K | ✅ Complete |
 | Phase 2 (Beta) | 16 | ~15K | ✅ Complete (16/16) |
 | Phase 2.5 (Signals) | 5 | ~1.5K | ✅ Complete |
-| Phase 3 (RC) | 15 | ~10K | In Progress (7/19 done) |
+| Phase 3 (RC) | 15 | ~10K | In Progress (8/19 done) |
 | Phase 4 (v1.0) | 10 | ~24K | Planned |
 | **Total** | **62+** | **~80K LOC** | |
 

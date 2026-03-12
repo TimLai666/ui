@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (TabView Widget — TASK-UI-029)
+- **TabView widget** (`core/tabview/`) — tabbed navigation container with lazy
+  content switching (only selected tab laid out/drawn). Horizontal tab bar with
+  Top/Bottom positioning. Click-to-select, closeable tabs (per-tab override),
+  keyboard navigation (Left/Right with wrap-around, Home/End, skip disabled).
+  Two-way SelectedSignal binding. Pluggable Painter pattern with DefaultPainter
+  fallback. Equal-width tab distribution. 92.1% test coverage.
+- **Material 3 TabViewPainter** (`theme/material3/tabview.go`) — M3 tab bar
+  rendering with HCT-derived colors, 3px rounded indicator, hover overlay,
+  focus ring, close button X icon, disabled state
+
 ### Added (ScrollView Widget — TASK-UI-028)
 - **ScrollView widget** (`core/scrollview/`) — scrollable container with content
   clipping via PushClip/PopClip and translation via PushTransform. Vertical (default),

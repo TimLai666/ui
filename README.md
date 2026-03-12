@@ -186,8 +186,9 @@ func main() {
 |---------|-------------|----------|
 | `animation` | Animation engine: tween, spring physics, CubicBezier, M3 motion tokens, Tween[T], Sequence/Parallel | 90.3% |
 | `core/scrollview` | Scrollable container: vertical/horizontal/both, wheel+keyboard+drag, PushClip/PushTransform, signal bindings | 96.5% |
+| `core/tabview` | Tabbed navigation: lazy content switching, closeable tabs, keyboard nav, Top/Bottom position, signal bindings | 92.1% |
 
-**Total: ~65,000+ lines of code | 29 packages | 2,000+ tests | ~97% average coverage**
+**Total: ~67,000+ lines of code | 30 packages | 2,100+ tests | ~97% average coverage**
 
 ---
 
@@ -209,6 +210,7 @@ func main() {
 │  core/slider/      │                 │                      │
 │  core/dialog/      │                 │                      │
 │  core/scrollview/  │                 │                      │
+│  core/tabview/     │                 │                      │
 │  focus/ overlay/ ✅│                │                      │
 ├──────────────┬──────────────────────────────────────────────┤
 │  cdk/        │  Content[C] polymorphic pattern              │
@@ -409,6 +411,26 @@ sv := scrollview.New(largeCanvas,
     scrollview.DirectionOpt(scrollview.Both),
     scrollview.ScrollYSignal(scrollY), // two-way binding
     scrollview.PainterOpt(material3.ScrollbarPainter{Theme: m3}),
+)
+```
+
+### TabView
+
+```go
+// Basic tab view
+tv := tabview.New([]tabview.Tab{
+    {Label: "Profile", Content: profileWidget},
+    {Label: "Settings", Content: settingsWidget},
+    {Label: "About", Content: aboutWidget},
+}, tabview.OnSelect(func(idx int) { fmt.Println("Tab:", idx) }))
+
+// Closeable tabs with M3 painter and signal binding
+selected := state.NewSignal[int](0)
+tv := tabview.New(tabs,
+    tabview.Closeable(true),
+    tabview.SelectedSignalOpt(selected),
+    tabview.PainterOpt(material3.TabViewPainter{Theme: m3}),
+    tabview.OnClose(func(idx int) { removeDynamicTab(idx) }),
 )
 ```
 
