@@ -20,7 +20,9 @@
 |         Layer 3a: Generic Widgets (behavior)                 |
 | core/button/      |  core/checkbox/   |  primitives/         |
 | core/radio/       |  core/textfield/  |  Box, Text, Image    |
-| core/dropdown/    |  Widget, Painter  |  ThemeScope          |
+| core/dropdown/    |  core/slider/     |  ThemeScope          |
+| core/dialog/      |  core/scrollview/ |  RepaintBoundary     |
+| core/tabview/     |  Widget, Painter  |                      |
 +-------------------+-------------------+----------------------+
 |         Layer 2: Component Development Kit                   |
 | cdk/              |                                          |
@@ -85,13 +87,17 @@
 | `core/radio/` | Radio group widget (selection + Painter) | `Group`, `Item`, `Painter`, `PaintState`, `DefaultPainter` |
 | `core/textfield/` | Text input widget (cursor, selection, clipboard) | `Widget`, `Painter`, selection, validation |
 | `core/dropdown/` | Dropdown/select widget (overlay menu) | `Widget`, `Painter`, keyboard nav, scroll |
-| `primitives/` | Display-only widgets | `BoxWidget`, `TextWidget`, `ImageWidget`, `ThemeScope` |
+| `core/slider/` | Slider widget (continuous/discrete, H/V) | `Widget`, `Painter`, `PaintState`, `DefaultPainter` |
+| `core/dialog/` | Modal dialog (backdrop, actions, focus trap) | `Widget`, `Painter`, `Alert`, `Confirm` |
+| `core/scrollview/` | Scrollable container (V/H/both) | `Widget`, `Painter`, wheel, keyboard, drag |
+| `core/tabview/` | Tabbed navigation (lazy content) | `Widget`, `Tab`, `Painter`, `DefaultPainter` |
+| `primitives/` | Display-only widgets + RepaintBoundary | `BoxWidget`, `TextWidget`, `ImageWidget`, `ThemeScope`, `RepaintBoundary` |
 
 ### Layer 3b: Design Systems
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `theme/material3/` | M3 design tokens + painters | `Theme`, `ButtonPainter`, `CheckboxPainter`, `RadioPainter`, `TextFieldPainter`, `DropdownPainter`, `ColorScheme`, `TypeScale`, `ShapeScale` |
+| `theme/material3/` | M3 design tokens + painters | `Theme`, `ButtonPainter`, `CheckboxPainter`, `RadioPainter`, `TextFieldPainter`, `DropdownPainter`, `SliderPainter`, `DialogPainter`, `ScrollbarPainter`, `TabViewPainter`, `ColorScheme`, `TypeScale`, `ShapeScale` |
 
 ### Infrastructure
 
@@ -103,6 +109,7 @@
 | `state/` | Reactive state with push-pull lifecycle | `Signal`, `ReadonlySignal`, `Computed`, `Effect`, `Binding`, `Scheduler` |
 | `theme/` | Base theme system | `Theme`, `ColorPalette`, `Typography`, `SpacingScale`, `ShadowStyles`, `RadiusScale` |
 | `a11y/` | Accessibility | `Accessible`, `Node`, `NodeID`, `Role`, `State`, `Action`, `Tree` |
+| `animation/` | Animation engine | `Controller`, `To`, `SpringTo`, `Sequence`, `Parallel`, `CubicBezier` |
 | `app/` | Window integration | `App`, `Window`, `EventBridge`, `FrameStats` |
 | `registry/` | Widget registry | `Registry`, `Category`, widget/context/canvas type aliases |
 | `plugin/` | Plugin system | `Plugin`, `Manager`, `PluginContext`, `Dependency`, `AssetLoader` |
@@ -112,7 +119,7 @@
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `internal/render/` | Canvas and Renderer backed by gg | `Canvas`, `Renderer`, `SoftwareTarget`, `RenderConfig` |
+| `internal/render/` | Canvas, SceneCanvas, Renderer backed by gg | `Canvas`, `SceneCanvas`, `Renderer`, `SoftwareTarget`, `RenderConfig` |
 | `internal/layout/` | Layout engines | `FlexContainer`, `VStack`, `HStack`, `GridContainer`, `Engine` |
 | `internal/focus/` | Focus manager implementation | `Manager`, `Shortcut`, `DrawFocusRing`, traversal helpers |
 
@@ -660,9 +667,18 @@ framebuffer. This means idle UIs consume zero CPU for the draw phase.
 `DrawStats` (dirty, clean, skipped, total counts). These stats are exposed
 via `FrameStats.DrawStats` for performance monitoring and validation.
 
-**Level 3: Per-widget pixel caching (planned, Sub-Phase 2)**
-Clean subtrees will be composited from cached textures instead of re-drawn.
-This is the RepaintBoundary pattern from Flutter.
+**Level 3: Per-widget pixel caching (implemented, Sub-Phase 2)**
+Clean subtrees are composited from cached pixel buffers instead of re-drawn.
+`RepaintBoundary` wraps a widget subtree and caches it as `image.RGBA`.
+On cache hit, the cached image is blitted directly via `canvas.DrawImage()`.
+
+**Level 4: Tile-parallel rendering (implemented, Sub-Phase 3)**
+Large RepaintBoundary subtrees (>= 128x128 pixels) use `scene.Scene` +
+`scene.Renderer` for tile-parallel rendering. `SceneCanvas` adapts
+`widget.Canvas` to record drawing commands into a `scene.Scene`, which is
+then rasterized via parallel tile workers. Text is rendered via gg.Context
+pass-through to preserve MSDF quality. Small RepaintBoundaries use the
+traditional `gg.Context` path to avoid scene setup overhead.
 
 The dirty-tracking flow:
 
@@ -693,7 +709,7 @@ Key functions:
 - Manages clip stack and transform stack internally
 - Clip intersection computed manually; visibility checked per draw call
 - Transform is translation-only (offset accumulation)
-- Text rendering uses Go standard fonts (goregular/gobold) via `gg/text.FontSource`
+- Text rendering uses Inter font (Regular/Bold) via `gg/text.FontSource`
 - Color conversion: `widget.Color` (float32) to `gg.RGBA` (float64) via `ToGGColor`/`FromGGColor`
 
 ### Renderer
@@ -703,6 +719,18 @@ Key functions:
 - `BeginFrame(background)` -- Resets canvas, clears with background color, returns Canvas
 - `EndFrame()` -- Returns the gg.Context for image extraction
 - `Resize(w, h)` -- Recreates context and canvas on size change
+
+### SceneCanvas (Tile-Parallel Rendering)
+
+`internal/render/SceneCanvas` implements `widget.Canvas` by recording commands
+into a `scene.Scene` instead of executing them immediately:
+
+- Shape operations (rect, round rect, circle, line) map to `scene.Shape` types
+- Text is rendered via gg.Context pass-through, captured as pixels, added as `scene.Image`
+- Clip and transform stacks mirror Canvas behavior for visibility optimization
+- Used by `RepaintBoundary.renderWithScene()` for large widget subtrees
+- `scene.Renderer` rasterizes the scene tile-parallel (64x64 tiles, goroutine worker pool)
+- Result is `gg.Pixmap.ToImage()` -> `*image.RGBA` for cache compositing
 
 ### Public Canvas Factory
 
@@ -1116,10 +1144,10 @@ The `registry/` package provides a global registry for widget factories:
 
 | Dependency | Purpose | Version |
 |------------|---------|---------|
-| `github.com/gogpu/gg` | 2D graphics backend for Canvas | v0.34.0 |
+| `github.com/gogpu/gg` | 2D graphics + scene.Scene tile-parallel rendering | v0.35.3+ |
 | `github.com/gogpu/gpucontext` | Window/Platform provider interfaces | v0.9.0 |
 | `github.com/coregx/signals` | Reactive state management | v0.1.0 |
-| `golang.org/x/image` | Standard Go fonts (goregular, gobold) | v0.36.0 |
+| `golang.org/x/image` | Font rendering infrastructure | v0.36.0 |
 
 Go version: **1.25.0**
 

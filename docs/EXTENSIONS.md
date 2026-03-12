@@ -1,6 +1,6 @@
 # Creating Extensions for gogpu/ui
 
-> **Version:** 0.2.x | **Updated:** February 2026
+> **Version:** 0.3.x | **Updated:** March 2026
 
 This guide explains how to extend gogpu/ui with custom widgets, themes, layouts, and plugins.
 
@@ -54,32 +54,33 @@ type MyButton struct {
 
 // NewMyButton creates a new button with the given label.
 func NewMyButton(label string) *MyButton {
-    return &MyButton{label: label}
+    b := &MyButton{label: label}
+    b.SetVisible(true)
+    b.SetEnabled(true)
+    return b
 }
 
 // Layout calculates the widget size.
-func (b *MyButton) Layout(wc widget.Context, constraints geometry.Constraints) geometry.Size {
+func (b *MyButton) Layout(ctx widget.Context, constraints geometry.Constraints) geometry.Size {
     // Button needs at least 100x40 pixels
-    return constraints.Constrain(geometry.Size{Width: 100, Height: 40})
+    return constraints.Constrain(geometry.Sz(100, 40))
 }
 
 // Draw renders the button.
-func (b *MyButton) Draw(wc widget.Context, canvas widget.Canvas) {
+func (b *MyButton) Draw(ctx widget.Context, canvas widget.Canvas) {
     bounds := b.Bounds()
 
     // Draw background
-    canvas.SetFillColor(widget.Hex(0x2196F3))
-    canvas.FillRoundedRect(bounds, 8)
+    canvas.DrawRoundRect(bounds, widget.Hex(0x2196F3), 8)
 
     // Draw label (centered)
-    canvas.SetFillColor(widget.White)
-    canvas.DrawText(b.label, bounds.Center())
+    canvas.DrawText(b.label, bounds, 14, widget.ColorWhite, false, 0.5)
 }
 
-// HandleEvent processes user input.
-func (b *MyButton) HandleEvent(wc widget.Context, ev event.Event) bool {
+// Event processes user input.
+func (b *MyButton) Event(ctx widget.Context, ev event.Event) bool {
     if mouse, ok := ev.(*event.MouseEvent); ok {
-        if mouse.Type == event.MousePress && mouse.Button == event.ButtonLeft {
+        if mouse.Type() == event.TypeMousePress {
             if b.onClick != nil {
                 b.onClick()
             }
@@ -598,6 +599,7 @@ import _ "github.com/yourname/ui-extension"
 |----------|---------------|
 | Phase 1.x | Stable (registry, theme, layout, plugin) |
 | Phase 2.x | Stable + interactive widgets (button, checkbox, radio, textfield, dropdown) + Painter pattern + overlay |
+| Phase 3.x | Stable + slider, dialog, scrollview, tabview, animation, RepaintBoundary, scene.Scene tile-parallel rendering |
 
 The extension API is stable and will remain compatible across future releases.
 

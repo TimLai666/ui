@@ -141,7 +141,7 @@ func main() {
 | `geometry` | Point, Size, Rect, Constraints, Insets | 98.8% |
 | `event` | MouseEvent, KeyEvent, WheelEvent, FocusEvent, Modifiers | 100% |
 | `widget` | Widget, WidgetBase, Context, Canvas, Lifecycle (mount/unmount), SchedulerRef | 100% |
-| `internal/render` | Canvas implementation using gogpu/gg | 96.5% |
+| `internal/render` | Canvas, SceneCanvas (tile-parallel), Renderer using gogpu/gg | 96.5% |
 | `internal/layout` | Flex, Stack, Grid layout engines | 89.9% |
 
 ### MVP (Phase 1)
@@ -175,7 +175,7 @@ func main() {
 | `core/dialog` | Modal dialog: backdrop overlay, action buttons, focus trapping, Alert/Confirm | 96.9% |
 | `core/dropdown` | Dropdown/select with overlay menu, keyboard navigation, signal bindings | 96%+ |
 | `overlay` | Overlay/popup stack, container, position helper | 95%+ |
-| `primitives` | Box, Text, Image, RepaintBoundary (per-widget pixel caching) | 94.4% |
+| `primitives` | Box, Text, Image, RepaintBoundary (pixel caching + tile-parallel scene.Scene) | 94.4% |
 | `theme/material3` | Material Design 3 — theme (HCT color science) + 7 component painters | 97%+ |
 | `focus` | Keyboard focus management with Tab/Shift+Tab navigation | 95.2% |
 | `internal/focus` | Internal focus manager implementation | 15.2% |
@@ -202,16 +202,16 @@ func main() {
 │  Theme + Painters  │   (Planned)     │    (Planned)         │
 │  (Complete ✅)     │                 │                      │
 ├─────────────────────────────────────────────────────────────┤
-│  core/button/      │  docking/       │  animation/          │
-│  core/checkbox/    │  DockingHost    │  Tween, Spring, M3   │
-│  core/radio/       │  (Phase 4)      │  (Complete ✅)       │
+│  core/button/      │  animation/     │  docking/            │
+│  core/checkbox/    │  Tween, Spring  │  DockingHost         │
+│  core/radio/       │  M3 motion ✅   │  (Phase 4)           │
 │  core/textfield/   │                 │                      │
-│  core/dropdown/    │                 │                      │
-│  core/slider/      │                 │                      │
-│  core/dialog/      │                 │                      │
-│  core/scrollview/  │                 │                      │
-│  core/tabview/     │                 │                      │
-│  focus/ overlay/ ✅│                │                      │
+│  core/dropdown/    │  internal/      │                      │
+│  core/slider/      │  render/        │                      │
+│  core/dialog/      │  Canvas +       │                      │
+│  core/scrollview/  │  SceneCanvas    │                      │
+│  core/tabview/     │  (tile-parallel │                      │
+│  focus/ overlay/ ✅│   scene.Scene)  │                      │
 ├──────────────┬──────────────────────────────────────────────┤
 │  cdk/        │  Content[C] polymorphic pattern              │
 │  (Complete ✅)│  Headless behaviors (Phase 3)               │
@@ -560,11 +560,14 @@ testApp.Window().Frame()  // processes layout + draw
 
 - [x] Retained-mode rendering: dirty tracking, DrawTree, DrawStats (SP1)
 - [x] RepaintBoundary: per-widget pixel caching (SP2)
+- [x] scene.Scene integration: tile-parallel rendering via SceneCanvas (SP3)
 - [x] Slider widget (continuous/discrete, horizontal/vertical, M3 painter)
-- [ ] Retained-mode rendering: scene.Scene integration (SP3)
-- [ ] ScrollView, TabView, SplitView
-- [ ] Animation engine (Spring, Tween)
-- [ ] Dialog/Modal, Popover/Tooltip
+- [x] Dialog/Modal widget (backdrop, actions, focus trapping, M3 painter)
+- [x] Animation engine (Tween, Spring, CubicBezier, M3 motion tokens)
+- [x] ScrollView widget (vertical/horizontal/both, wheel+keyboard+drag)
+- [x] TabView widget (lazy content, closeable tabs, keyboard nav)
+- [ ] SplitView
+- [ ] Popover/Tooltip
 - [ ] Virtualized lists and grids
 - [ ] Progress indicators
 - [ ] Typography and Icon systems

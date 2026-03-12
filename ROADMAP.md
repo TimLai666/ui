@@ -96,15 +96,16 @@ v1.0.0  → Production (when ready)
 │  theme/material3   │  theme/fluent   │  theme/cupertino     │
 │  (Complete ✅)     │   (Phase 4)     │    (Phase 4)         │
 ├─────────────────────────────────────────────────────────────┤
-│  core/button/      │  docking/       │  animation/          │
-│  core/checkbox/    │  DockingHost    │  Animation, Spring   │
-│  core/radio/       │  (Phase 4)      │  (Phase 3)           │
+│  core/button/      │  animation/ ✅  │  docking/            │
+│  core/checkbox/    │  Tween, Spring  │  DockingHost         │
+│  core/radio/       │  M3 motion      │  (Phase 4)           │
 │  core/textfield/   │                 │                      │
-│  core/dropdown/    │                 │                      │
-│  core/slider/ ✅   │                 │                      │
-│  core/dialog/ ✅   │                 │                      │
-│  focus/ overlay/   │                 │                      │
-│  (Phase 2 ✅)      │                 │                      │
+│  core/dropdown/    │  internal/      │                      │
+│  core/slider/ ✅   │  render/        │                      │
+│  core/dialog/ ✅   │  Canvas +       │                      │
+│  core/scrollview/✅│  SceneCanvas ✅ │                      │
+│  core/tabview/ ✅  │  (tile-parallel │                      │
+│  focus/ overlay/ ✅│   scene.Scene)  │                      │
 ├─────────────────────────────────────────────────────────────┤
 │  layout/                            │  state/               │
 │  VStack, HStack, Grid, Flexbox      │  coregx/signals       │
@@ -293,6 +294,7 @@ v1.0.0  → Production (when ready)
 **Remaining:**
 
 | Task | Description | LOC | Priority |
+|------|-------------|-----|----------|
 | TASK-UI-016 | Progress Indicators | ~500 | P2 |
 | TASK-UI-021 | VirtualizedList | ~1,500 | P0 |
 | TASK-UI-022 | VirtualizedGrid | ~800 | P1 |
@@ -349,7 +351,7 @@ v1.0.0  → Production (when ready)
 | Phase 1.5 (Extensibility) | 6 | ~9K | ✅ Complete |
 | Phase 2 (Beta) | 16 | ~15K | ✅ Complete (16/16) |
 | Phase 2.5 (Signals) | 5 | ~1.5K | ✅ Complete |
-| Phase 3 (RC) | 15 | ~10K | In Progress (8/19 done) |
+| Phase 3 (RC) | 19 | ~10K | In Progress (11/19 done) |
 | Phase 4 (v1.0) | 10 | ~24K | Planned |
 | **Total** | **62+** | **~80K LOC** | |
 
