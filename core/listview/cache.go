@@ -1,6 +1,9 @@
 package listview
 
-import "github.com/gogpu/ui/widget"
+import (
+	"github.com/gogpu/ui/cdk"
+	"github.com/gogpu/ui/widget"
+)
 
 // widgetCache caches the currently visible item widgets between frames.
 //
@@ -16,8 +19,8 @@ type widgetCache struct {
 
 // update ensures the cache contains widgets for the range [start, end).
 // If the range matches and the cache is valid, this is a no-op.
-// Otherwise, it calls the builder for each index in the range.
-func (wc *widgetCache) update(start, end int, builder func(ctx ItemContext) widget.Widget, selectedIndex, hoveredIndex int) {
+// Otherwise, it calls the content's Render method for each index in the range.
+func (wc *widgetCache) update(start, end int, content cdk.Content[ItemContext], selectedIndex, hoveredIndex int) {
 	count := end - start
 	if count <= 0 {
 		wc.clear()
@@ -36,14 +39,14 @@ func (wc *widgetCache) update(start, end int, builder func(ctx ItemContext) widg
 		wc.widgets = make([]widget.Widget, count)
 	}
 
-	if builder == nil {
+	if content == nil {
 		for i := range wc.widgets {
 			wc.widgets[i] = nil
 		}
 	} else {
-		for i := 0; i < count; i++ {
+		for i := range count {
 			idx := start + i
-			wc.widgets[i] = builder(ItemContext{
+			wc.widgets[i] = content.Render(ItemContext{
 				Index:    idx,
 				Selected: idx == selectedIndex,
 				Focused:  idx == selectedIndex,

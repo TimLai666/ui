@@ -1,8 +1,8 @@
 package listview
 
 import (
+	"github.com/gogpu/ui/cdk"
 	"github.com/gogpu/ui/state"
-	"github.com/gogpu/ui/widget"
 )
 
 // config holds the list view's configuration, set at construction time via options.
@@ -13,8 +13,9 @@ type config struct {
 	itemCountSignal         state.Signal[int]
 	readonlyItemCountSignal state.ReadonlySignal[int]
 
-	// Item builder.
-	buildItem func(ctx ItemContext) widget.Widget
+	// Item content — the Content[ItemContext] that renders each visible item.
+	// Set via BuildItem (convenience) or ItemContent (direct Content[C]).
+	itemContent cdk.Content[ItemContext]
 
 	// Height modes (mutually exclusive; checked in order: fixed > fn > estimated).
 	fixedItemHeight     float32

@@ -4,6 +4,7 @@ import (
 	"image"
 	"testing"
 
+	"github.com/gogpu/ui/cdk"
 	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
 	"github.com/gogpu/ui/widget"
@@ -481,9 +482,9 @@ func TestNewHeightManager(t *testing.T) {
 
 func TestWidgetCache_Update(t *testing.T) {
 	var wc widgetCache
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		return nil // simple builder for testing
-	}
+	}}
 
 	wc.update(0, 5, builder, -1, -1)
 
@@ -504,10 +505,10 @@ func TestWidgetCache_Update(t *testing.T) {
 func TestWidgetCache_Reuse(t *testing.T) {
 	var wc widgetCache
 	callCount := 0
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		callCount++
 		return nil
-	}
+	}}
 
 	wc.update(0, 5, builder, -1, -1)
 	if callCount != 5 {
@@ -524,10 +525,10 @@ func TestWidgetCache_Reuse(t *testing.T) {
 func TestWidgetCache_InvalidateForces_Rebuild(t *testing.T) {
 	var wc widgetCache
 	callCount := 0
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		callCount++
 		return nil
-	}
+	}}
 
 	wc.update(0, 5, builder, -1, -1)
 	wc.invalidate()
@@ -540,9 +541,9 @@ func TestWidgetCache_InvalidateForces_Rebuild(t *testing.T) {
 
 func TestWidgetCache_Clear(t *testing.T) {
 	var wc widgetCache
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		return nil
-	}
+	}}
 
 	wc.update(0, 5, builder, -1, -1)
 	wc.clear()
@@ -557,9 +558,9 @@ func TestWidgetCache_Clear(t *testing.T) {
 
 func TestWidgetCache_EmptyRange(t *testing.T) {
 	var wc widgetCache
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		return nil
-	}
+	}}
 
 	wc.update(0, 0, builder, -1, -1)
 
@@ -594,10 +595,10 @@ func TestWidgetCache_NilBuilder(t *testing.T) {
 func TestWidgetCache_ItemContextPropagation(t *testing.T) {
 	var wc widgetCache
 	var received []ItemContext
-	builder := func(ctx ItemContext) widget.Widget {
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
 		received = append(received, ctx)
 		return nil
-	}
+	}}
 
 	wc.update(5, 8, builder, 6, 7)
 

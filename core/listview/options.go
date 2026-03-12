@@ -1,6 +1,7 @@
 package listview
 
 import (
+	"github.com/gogpu/ui/cdk"
 	"github.com/gogpu/ui/state"
 	"github.com/gogpu/ui/widget"
 )
@@ -46,10 +47,25 @@ func ItemCountReadonlySignal(sig state.ReadonlySignal[int]) Option {
 
 // BuildItem sets the callback that creates a widget for each visible item.
 // The callback receives an [ItemContext] with the item's index and state.
-// This is the primary API for providing list content.
+// This is the primary convenience API for providing list content.
+//
+// Internally, the function is wrapped into a [cdk.FuncContent] so that the
+// list view uniformly operates on [cdk.Content] for item rendering.
 func BuildItem(fn func(ctx ItemContext) widget.Widget) Option {
 	return func(c *config) {
-		c.buildItem = fn
+		c.itemContent = cdk.FuncContent[ItemContext]{Fn: fn}
+	}
+}
+
+// ItemContent sets the [cdk.Content] used to render each visible item.
+// This is the enterprise API for providing list content — use it when you
+// need reusable content implementations or progressive complexity
+// (string → function → widget).
+//
+// For most use cases, [BuildItem] is simpler and sufficient.
+func ItemContent(content cdk.Content[ItemContext]) Option {
+	return func(c *config) {
+		c.itemContent = content
 	}
 }
 

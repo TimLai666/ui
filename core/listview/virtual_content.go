@@ -62,7 +62,7 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 	selectedIdx := lv.cfg.ResolvedSelectedIndex()
 
 	// Update the widget cache for the visible range.
-	lv.cache.update(start, end, lv.cfg.buildItem, selectedIdx, lv.hoveredIndex)
+	lv.cache.update(start, end, lv.cfg.itemContent, selectedIdx, lv.hoveredIndex)
 
 	// Layout and draw each visible item.
 	for i := start; i < end; i++ {
