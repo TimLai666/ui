@@ -47,6 +47,16 @@
 
 ---
 
+## Screenshot
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/f67636bc-7426-4865-9269-11e2a81124ad" alt="gogpu/ui Widget Demo" width="600" />
+</p>
+
+<p align="center"><em>examples/hello — Checkboxes, Radio Buttons, ListView (1000 items), Material Design 3</em></p>
+
+---
+
 ## Quick Start
 
 > **Important:** The gogpu ecosystem is **pure Go with zero CGO**. You must set `CGO_ENABLED=0` (the Go default) — do **not** enable CGO.
