@@ -5,7 +5,156 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] — 2026-03-15
+
+### Added (Hover Tracking — TASK-UI-067)
+- **W3C PointerEventSource** — wired `gpucontext.PointerEventSource.OnPointer()` for
+  window Enter/Leave events. HoverTracker in Window performs hit-testing on MouseMove
+  using ScreenBounds, synthesizes MouseEnter/MouseLeave for individual widgets.
+  Enables hover cursors (pointer, text, resize) in production. 17 new tests.
+
+### Fixed (Drag Cursor — TASK-UI-068)
+- **Drag cursor maintained** — SplitView and Slider now set cursor on every drag MouseMove.
+  Window skips ResetCursor in Frame() while mouse buttons are held. Cursor sync runs
+  immediately after HandleEvent for responsive hover feedback in event-driven mode.
+
+### Fixed (Event Coordinate Transform — TASK-UI-066)
+- **ScrollView event dispatch** — mouse/wheel coordinates now transformed from screen
+  space to content space before dispatching to children. Fixes click hit-testing for
+  widgets inside scrolled containers. Removed redundant transforms from ListView/DataTable.
+
+### Added (Widget Gallery Example)
+- **Gallery example** (`examples/gallery/`) — comprehensive widget gallery demonstrating
+  all 22 interactive widgets with live theme switching between Material 3, Fluent Design,
+  and Cupertino design systems. Organized into collapsible sections by category.
+
+### Changed (Dependencies)
+- **gogpu** v0.24.0 → **v0.24.1**
+
+### Added (Screen-Space Coordinates — TASK-UI-065)
+- **ScreenBounds** (`widget/base.go`) — screen-space coordinate transform for overlay
+  positioning inside ScrollView. Draw-pass transform stamping via `Canvas.TransformOffset()`
+  + `widget.StampScreenOrigin()`. Dropdown/Popover use `ScreenBounds()` for correct
+  positioning. Enterprise pattern (Flutter localToGlobal / Qt mapToGlobal). 72 files.
+
+### Fixed (Collapsible)
+- **Event forwarding** — Collapsible now properly forwards events to content widgets
+  when expanded. Previously mouse clicks on content children were not dispatched.
+
+### Fixed (App — Text Input)
+- **OnTextInput handler** — EventBridge now uses `OnTextInput` callback for character
+  input, replacing the `keyToRune` workaround that failed for non-ASCII characters
+- **keyToRune removal** — removed fragile key-to-rune synthesis; character input now
+  comes exclusively from the platform's text input API
+
+### Added (Widget Canvas)
+- **MeasureText** — new `widget.Canvas` interface method for measuring text dimensions
+  without drawing. Returns `geometry.Size` with text width and height. Used by widgets
+  for layout calculations (e.g., label width in ProgressBar, column sizing in DataTable).
+
+### Fixed (App — Focus)
+- **FocusManager integration** — Window now creates and wires a `focus.Manager` for
+  Tab/Shift+Tab keyboard navigation. Key events flow through FocusManager before
+  reaching the widget tree, enabling system-level focus traversal.
+- **Tab focus redraw** — focus changes now properly trigger widget invalidation so
+  focus rings are drawn/cleared immediately
+
+### Fixed (Font)
+- **Inter font full Unicode** — replaced Latin-only Inter font subsets with full
+  Unicode Inter 4.1 font files. Enables Cyrillic, Greek, Vietnamese, and other scripts.
+
+### Changed (Dependencies — Cascade Update)
+- **gg** v0.36.4 -> **v0.37.0** (full ecosystem update for new wgpu HAL API)
+- **gpucontext** v0.9.0 -> **v0.10.0** (TextureView.Destroy API change)
+- **gogpu** v0.23.3 -> **v0.24.0** (new wgpu HAL integration)
+- **wgpu** (indirect) -> **v0.21.0** (new HAL API, TextureView lifecycle)
+- **naga** (indirect) -> **v0.14.7**
+
+### Refactored (API Consistency)
+- **TextAlign type** — `Canvas.DrawText` alignment parameter changed from raw `float32`
+  to type-safe `widget.TextAlign` enum (Left/Center/Right). 65 files updated.
+- **Painter naming** — linechart `DrawChart`→`PaintChart`, `ChartState`→`PaintState`;
+  progressbar `ColorScheme`→`ProgressBarColorScheme`
+
+### Added (M3 Painters for Phase 4 Widgets)
+- **12 new Material 3 painters** (`theme/material3/`) — ProgressBar, Progress (circular),
+  Collapsible, Popover, SplitView, GridView, LineChart, TreeView, DataTable, Toolbar,
+  Menu, Docking. All with M3 color roles and tests.
+
+### Added (Phase 4 — Enterprise Widgets)
+- **TreeView** (`core/treeview/`) — hierarchical tree with expand/collapse, virtualized
+  rendering, keyboard nav, indent with connector lines, selection, Painter pattern
+- **DataTable** (`core/datatable/`) — sortable column table, fixed header, virtualized
+  rows, row selection, column alignment, zebra striping, sort indicators
+- **Toolbar** (`core/toolbar/`) — horizontal action bar with icon buttons, separators,
+  spacers, custom widget items, keyboard nav
+- **Menu System** (`core/menu/`) — MenuBar + ContextMenu, submenus, separators,
+  disabled items, shortcut display, overlay integration
+
+### Added (Phase 4 — Design Systems & Infrastructure)
+- **Fluent Design Theme** (`theme/fluent/`) — Microsoft Fluent Design with 9 painters,
+  accent color system, inner focus ring, 4px radii, light/dark variants. 42 tests.
+- **Cupertino Theme** (`theme/cupertino/`) — Apple HIG with 9 painters, iOS toggle switch
+  checkbox, segmented control tabview, transparent scrollbar, pill buttons. 44 tests.
+- **i18n System** (`i18n/`) — Locale, Bundle, Translator with 4-level fallback,
+  CLDR plural rules (6 language families), RTL detection, reactive LocaleSignal. 32 tests, 97.9%
+
+### Added (Phase 4 — Continued)
+- **Docking System** (`core/docking/`) — IDE-style dockable panels with border layout
+  (Left/Right/Top/Bottom/Center zones), tabbed panel groups, auto-collapse empty zones,
+  Dock/Undock/MovePanel API. 62 tests, 95.3%
+- **Testing Utilities** (`uitest/`) — reusable MockCanvas (records all draw calls),
+  MockContext, event factories, widget helpers, custom assertions. Replaces 30+ duplicate
+  mocks across test files. 53 tests, 93.1%
+
+### Added (Phase 4 Infrastructure)
+- **Font Registry** (`theme/font/`) — CSS font-weight matching algorithm (W3C spec),
+  Weight (100-900), Style (Normal/Italic), Family/Face, thread-safe Registry. 20 tests, 97.7%
+- **Icon System** (`icon/`) — vector path icons (MoveTo/LineTo/CubicTo/Close), IconWidget,
+  thread-safe Registry, 10 built-in Material-style icons, De Casteljau cubic Bezier. 39 tests, 97.6%
+- **Drag and Drop** (`dnd/`) — DragSource/DropTarget interfaces, Manager with full lifecycle,
+  5px drag threshold, Escape cancel, drop effects. Foundation for docking system.
+
+### Added (Phase 4 Widgets)
+- **Circular Progress** (`core/progress/`) — determinate arc + indeterminate spinner,
+  polyline arc approximation, time-based animation, Painter pattern. 48 tests, 97.4%
+- **Popover/Tooltip** (`core/popover/`) — click-triggered popover + hover-triggered tooltip,
+  12 placements with auto-flip, viewport clamping, overlay integration, dismiss-on-click-outside
+- **SplitView** (`core/splitview/`) — resizable split panels (H/V), draggable divider,
+  min constraints, double-click collapse, handle dots, cursor change. 37 tests, 96.8%
+
+### Added (Performance Benchmarks)
+- **Benchmarks** across 5 packages: layout (flex/stack/grid/cache), signals (get/set/computed/effect/chain),
+  widget tree (walk/bounds), ListView virtualization (layout/scroll/selection), animation (tween/spring/sequence).
+  36 benchmarks total. Key results: ~17ns signal read, ~150ns 10-child flex layout, ~28ns tween tick,
+  zero allocations on hot paths.
+
+### Added (Dirty Region Tracking — TASK-UI-053)
+- **Dirty region tracker** (`internal/dirty/`) — collects dirty widget bounds,
+  merges overlapping/nearby regions, enables partial repaints. Collector walks
+  widget tree via NeedsRedraw(), Tracker optimizes regions with configurable
+  merge gap. Full repaint fallback when >16 regions. 43 tests, 100% coverage.
+
+### Added (Transitions — TASK-UI-025)
+- **Transition wrapper** (`transition/`) — widget enter/exit animations via wrapper
+  pattern. Effects: FadeIn/Out, SlideIn/Out (4 directions), ScaleIn/Out. Show()/Hide()
+  trigger animated transitions with time-based progress. OpacityPusher graceful
+  degradation, retained-mode integration. 38 tests, 98.7% coverage.
+
+### Added (Animation Presets — TASK-UI-024A)
+- **M3 motion presets** (`animation/presets.go`) — Material 3 duration tokens
+  (Short1..ExtraLong4), easing aliases (Standard, Emphasized, Decelerate, Accelerate),
+  preset builders: FadeIn/Out, SlideIn (4 directions), ScaleIn/Out, DialogEnter/Exit,
+  MenuEnter/Exit, SnackbarEnter/Exit
+- **Orchestration helpers** (`animation/orchestrate.go`) — Stagger (staggered start),
+  Chain, Group, RepeatN/RepeatForever, Reverse, WithDelay
+
+### Added (GridView Widget — TASK-UI-022)
+- **GridView widget** (`core/gridview/`) — virtualized 2D grid for large datasets.
+  Fixed cell size with auto-fit columns, cell recycling (only visible rows rendered),
+  single selection, keyboard navigation (arrows/Home/End/PgUp/PgDn), hover highlight.
+  Content[C] (CDK) architecture, BuildCell convenience API, Painter pattern,
+  4-level signal bindings. 90 tests, 92.1% coverage.
 
 ### Added (ListView Widget — TASK-UI-021)
 - **ListView widget** (`core/listview/`) — virtualized scrollable list for large
@@ -18,6 +167,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback. M3 ListViewPainter with HCT-derived selection/hover colors.
 - **Material 3 ListViewPainter** (`theme/material3/listview.go`) — M3 list item
   rendering with hover overlay, selection background, divider colors from theme
+
+### Added (Box — Horizontal Layout, TASK-UI-058)
+- **HBox / VBox direction** — Box widget now supports horizontal layout via
+  `SetDirection(DirectionHorizontal)`, `HBox()` / `VBox()` convenience constructors,
+  `DirectionSignal` reactive binding. Children laid out left-to-right with gap.
+  Mount/Unmount lifecycle for signal cleanup.
+
+### Added (LineChart Widget — TASK-UI-060)
+- **LineChart widget** (`core/linechart/`) — real-time line chart for time-series
+  data visualization. Multiple series with colors, rolling window (MaxPoints),
+  auto-scaling Y axis, grid lines, Y-axis labels. Right-aligned scrolling
+  (newest data at right edge). Pluggable Painter pattern, signal bindings,
+  thread-safe PushValue. 43 tests, 98.8% coverage.
+
+### Added (ProgressBar Widget — TASK-UI-059)
+- **ProgressBar widget** (`core/progressbar/`) — linear progress bar (0-100%).
+  Rounded corners via PushClipRoundRect, optional label with custom format,
+  configurable bar/track/label colors. 4-level signal priority for value binding,
+  Painter pattern, Mount/Unmount lifecycle. 31 tests, 99.3% coverage.
+
+### Added (Collapsible Section Widget — TASK-UI-061)
+- **Collapsible widget** (`core/collapsible/`) — expandable section with clickable
+  header and animated content reveal. Tween animation with EaseInOutCubic,
+  keyboard focus (Enter/Space), arrow indicator, content clipping during
+  animation. Painter pattern, two-way ExpandedSignal binding.
+  76 tests, 98.2% coverage.
 
 ### Fixed (ScrollView)
 - **Drag sticking** — mouse drag no longer "sticks" when releasing outside the

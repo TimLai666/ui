@@ -359,7 +359,7 @@ func ensureDefaultFonts() {
 }
 
 // DrawText draws text within the given bounding rectangle.
-func (c *Canvas) DrawText(s string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align float32) {
+func (c *Canvas) DrawText(s string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align widget.TextAlign) {
 	if s == "" {
 		return
 	}
@@ -395,11 +395,34 @@ func (c *Canvas) DrawText(s string, bounds geometry.Rect, fontSize float32, colo
 	available := float64(bounds.Width())
 	x := float64(bounds.Min.X)
 	if w < available {
-		x += (available - w) * float64(align)
+		x += (available - w) * align.Float64()
 	}
 	x = math.Round(x)
 
 	c.dc.DrawString(s, x, baselineY)
+}
+
+// MeasureText returns the width in pixels of the given text string
+// when rendered at the specified font size and weight.
+func (c *Canvas) MeasureText(s string, fontSize float32, bold bool) float32 {
+	if s == "" {
+		return 0
+	}
+
+	ensureDefaultFonts()
+
+	source := defaultRegular
+	if bold {
+		source = defaultBold
+	}
+	if source == nil {
+		return float32(len([]rune(s))) * fontSize * 0.5
+	}
+
+	face := source.Face(float64(fontSize))
+	c.dc.SetFont(face)
+	w, _ := c.dc.MeasureString(s)
+	return float32(w)
 }
 
 // DrawImage draws an image at the specified position.

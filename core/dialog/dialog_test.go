@@ -453,7 +453,7 @@ type drawTextCall struct {
 	fontSize float32
 	color    widget.Color
 	bold     bool
-	align    float32
+	align    widget.TextAlign
 }
 
 func (c *recordingCanvas) Clear(_ widget.Color) {}
@@ -476,8 +476,12 @@ func (c *recordingCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color
 func (c *recordingCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
 func (c *recordingCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)             {}
 
-func (c *recordingCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align float32) {
+func (c *recordingCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align widget.TextAlign) {
 	c.drawTexts = append(c.drawTexts, drawTextCall{text: text, bounds: bounds, fontSize: fontSize, color: color, bold: bold, align: align})
+}
+
+func (c *recordingCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
+	return float32(len([]rune(text))) * fontSize * 0.5
 }
 
 func (c *recordingCanvas) DrawImage(_ image.Image, _ geometry.Point)    {}
@@ -486,6 +490,7 @@ func (c *recordingCanvas) PushClipRoundRect(_ geometry.Rect, _ float32) {}
 func (c *recordingCanvas) PopClip()                                     {}
 func (c *recordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordingCanvas) PopTransform()                                {}
+func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 
 // --- mockOverlayManager records overlay operations ---
 

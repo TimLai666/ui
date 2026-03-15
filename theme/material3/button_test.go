@@ -20,7 +20,7 @@ type drawCall struct {
 	text        string
 	fontSize    float32
 	bold        bool
-	align       float32
+	align       widget.TextAlign
 }
 
 // recordCanvas records all drawing operations for test assertions.
@@ -63,11 +63,15 @@ func (c *recordCanvas) DrawLine(from, to geometry.Point, color widget.Color, str
 	c.calls = append(c.calls, drawCall{method: methodDrawLine, color: color, strokeWidth: strokeWidth})
 }
 
-func (c *recordCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align float32) {
+func (c *recordCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align widget.TextAlign) {
 	c.calls = append(c.calls, drawCall{
 		method: methodDrawText, text: text, bounds: bounds,
 		fontSize: fontSize, color: color, bold: bold, align: align,
 	})
+}
+
+func (c *recordCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
+	return float32(len([]rune(text))) * fontSize * 0.5
 }
 
 func (c *recordCanvas) DrawImage(_ image.Image, _ geometry.Point) {}
@@ -79,7 +83,8 @@ func (c *recordCanvas) PopClip() {}
 
 func (c *recordCanvas) PushTransform(offset geometry.Point) {}
 
-func (c *recordCanvas) PopTransform() {}
+func (c *recordCanvas) PopTransform()                   {}
+func (c *recordCanvas) TransformOffset() geometry.Point { return geometry.Point{} }
 
 // Method name constants to satisfy goconst.
 const (

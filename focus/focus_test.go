@@ -78,7 +78,11 @@ func (c *mockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)    
 func (c *mockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
 func (c *mockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)             {}
 
-func (c *mockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ float32) {
+func (c *mockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
+}
+
+func (c *mockCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
+	return float32(len([]rune(text))) * fontSize * 0.5
 }
 
 func (c *mockCanvas) DrawImage(_ image.Image, _ geometry.Point)    {}
@@ -87,6 +91,7 @@ func (c *mockCanvas) PushClipRoundRect(_ geometry.Rect, _ float32) {}
 func (c *mockCanvas) PopClip()                                     {}
 func (c *mockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *mockCanvas) PopTransform()                                {}
+func (c *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 
 // testTree holds widget references from buildTree for easy access.
 type testTree struct {

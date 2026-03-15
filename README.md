@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/gogpu/ui/actions"><img src="https://github.com/gogpu/ui/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/gogpu/ui"><img src="https://img.shields.io/badge/status-Phase_3_RC-blue" alt="Status"></a>
+  <a href="https://github.com/gogpu/ui"><img src="https://img.shields.io/badge/status-Phase_4_v1.0-blue" alt="Status"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
   <a href="https://github.com/gogpu/gogpu/stargazers"><img src="https://img.shields.io/github/stars/gogpu/gogpu?style=flat&labelColor=555&color=yellow" alt="Stars"></a>
@@ -186,20 +186,48 @@ func main() {
 | `core/dropdown` | Dropdown/select with overlay menu, keyboard navigation, signal bindings | 96%+ |
 | `overlay` | Overlay/popup stack, container, position helper | 95%+ |
 | `primitives` | Box, Text, Image, RepaintBoundary (pixel caching + tile-parallel scene.Scene) | 94.4% |
-| `theme/material3` | Material Design 3 — theme (HCT color science) + 10 component painters | 97%+ |
+| `theme/material3` | Material Design 3 — theme (HCT color science) + 21 component painters | 97%+ |
 | `focus` | Keyboard focus management with Tab/Shift+Tab navigation | 95.2% |
 | `internal/focus` | Internal focus manager implementation | 15.2% |
 
-### Phase 3 (In Progress)
+### Phase 3 (Complete)
 
 | Package | Description | Coverage |
 |---------|-------------|----------|
-| `animation` | Animation engine: tween, spring physics, CubicBezier, M3 motion tokens, Tween[T], Sequence/Parallel | 90.3% |
+| `animation` | Animation engine: tween, spring, M3 presets, orchestration (Stagger/Chain/Repeat/Reverse) | 92.3% |
+| `transition` | Widget enter/exit animations: Fade, Slide, Scale effects, Show/Hide wrapper | 98.7% |
 | `core/scrollview` | Scrollable container: vertical/horizontal/both, wheel+keyboard+drag, PushClip/PushTransform, signal bindings | 96.5% |
 | `core/tabview` | Tabbed navigation: lazy content switching, closeable tabs, keyboard nav, Top/Bottom position, signal bindings | 92.1% |
 | `core/listview` | Virtualized list: fixed-height items, recycling, single/multi selection, keyboard nav, M3 painter | 96%+ |
+| `core/gridview` | Virtualized 2D grid: fixed cell size, auto-fit columns, cell recycling, selection, keyboard nav | 92.1% |
+| `core/linechart` | Real-time line chart: multiple series, rolling window, grid, Y-axis labels, thread-safe PushValue | 98.8% |
+| `core/progressbar` | Linear progress bar: 0-100%, rounded corners, label, signal binding, PushClipRoundRect | 99.3% |
+| `core/collapsible` | Expandable section: animated expand/collapse, keyboard focus, arrow indicator, Tween animation | 98.2% |
+| `primitives` | Box (HBox/VBox direction), Text, Image, ThemeScope, RepaintBoundary | 94%+ |
 
-**Total: ~84,000+ lines of code | 31 packages | 2,276+ tests | ~97% average coverage**
+### Phase 4 (In Progress)
+
+| Package | Description | Coverage |
+|---------|-------------|----------|
+| `core/progress` | Circular progress: determinate arc + indeterminate spinner, polyline approximation | 97.4% |
+| `core/popover` | Popover (click) + Tooltip (hover): 12 placements, auto-flip, overlay integration | 97.1% |
+| `core/splitview` | Resizable split panels: draggable divider, min constraints, collapse, handle dots | 96.8% |
+| `core/treeview` | Hierarchical tree: expand/collapse, virtualized rendering, connector lines, keyboard nav | 96%+ |
+| `core/datatable` | Sortable column table: fixed header, virtualized rows, zebra striping, sort indicators | 96%+ |
+| `core/toolbar` | Horizontal action bar: icon buttons, separators, spacers, custom widget items | 96%+ |
+| `core/menu` | MenuBar + ContextMenu: submenus, separators, disabled items, shortcut display | 96%+ |
+| `core/docking` | IDE-style dockable panels: border layout, tabbed groups, Dock/Undock API | 95.3% |
+| `theme/material3` | 21 component painters (all widgets covered) | 97%+ |
+| `theme/fluent` | Microsoft Fluent Design: 9 painters, accent colors, inner focus ring, light/dark | 96%+ |
+| `theme/cupertino` | Apple HIG: 9 painters, iOS toggle switch, segmented control, pill buttons | 96%+ |
+| `theme/font` | Font Registry: CSS weight matching (W3C spec), Weight 100-900, Style, Family/Face | 97.7% |
+| `icon` | Vector path icons: 10 built-in Material icons, De Casteljau cubic Bezier, IconWidget | 97.6% |
+| `i18n` | Internationalization: Locale, Bundle, Translator, CLDR plural rules, RTL, LocaleSignal | 97.9% |
+| `dnd` | Drag and drop: DragSource/DropTarget interfaces, Manager, 5px threshold, Escape cancel | 99.3% |
+| `uitest` | Testing utilities: MockCanvas, MockContext, event factories, widget helpers, assertions | 93.1% |
+| `internal/dirty` | Dirty region tracking: Collector, Tracker, merge algorithm, partial repaints | 100% |
+
+**Total: ~150,000 lines of code | 55+ packages | ~6,000 tests | ~97% average coverage**
 
 ---
 
@@ -209,40 +237,38 @@ func main() {
 ┌─────────────────────────────────────────────────────────────┐
 │                    User Application                         │
 ├─────────────────────────────────────────────────────────────┤
-│  theme/material3/  │  fluent/        │  cupertino/          │
-│  Theme + Painters  │   (Planned)     │    (Planned)         │
-│  (Complete ✅)     │                 │                      │
+│  theme/material3/  │  theme/fluent/  │  theme/cupertino/    │
+│  21 Painters ✅    │  9 Painters ✅  │  9 Painters ✅       │
 ├─────────────────────────────────────────────────────────────┤
-│  core/button/      │  animation/     │  docking/            │
-│  core/checkbox/    │  Tween, Spring  │  DockingHost         │
-│  core/radio/       │  M3 motion ✅   │  (Phase 4)           │
-│  core/textfield/   │                 │                      │
-│  core/dropdown/    │  internal/      │                      │
-│  core/slider/      │  render/        │                      │
-│  core/dialog/      │  Canvas +       │                      │
-│  core/scrollview/  │  SceneCanvas    │                      │
-│  core/tabview/     │  (tile-parallel │                      │
-│  focus/ overlay/ ✅│   scene.Scene)  │                      │
+│  22 Interactive Widgets (core/)                             │
+│  button, checkbox, radio, textfield, dropdown, slider,      │
+│  dialog, scrollview, tabview, listview, gridview, linechart,│
+│  progressbar, progress, collapsible, popover, splitview,    │
+│  treeview, datatable, toolbar, menu, docking                │
 ├──────────────┬──────────────────────────────────────────────┤
 │  cdk/        │  Content[C] polymorphic pattern              │
-│  (Complete ✅)│  Headless behaviors (Phase 3)               │
 ├──────────────┴──────────────────────────────────────────────┤
-│  primitives/       │  app/           │  a11y/               │
-│  Box, Text, Image  │  Window, Loop   │  Roles, Tree, Node   │
-│  (Complete ✅)     │  (Complete ✅) │  (Complete ✅)       │
+│  primitives/       │  animation/     │  transition/         │
+│  Box (HBox/VBox),  │  Tween, Spring  │  Fade, Slide, Scale  │
+│  Text, Image,      │  M3 Presets,    │  Enter/Exit          │
+│  RepaintBoundary   │  Orchestration  │                      │
+├─────────────────────────────────────────────────────────────┤
+│  icon/  │  i18n/  │  dnd/   │  uitest/ │  theme/font/       │
+├─────────────────────────────────────────────────────────────┤
+│  app/ + FocusManager │  focus/ │  overlay/ │  render/       │
+├─────────────────────────────────────────────────────────────┤
+│  layout/           │  state/         │  a11y/               │
+│  Flex, Stack, Grid │  Signals, Bind  │  ARIA Roles, Tree    │
 ├─────────────────────────────────────────────────────────────┤
 │  registry/         │  plugin/        │  theme/              │
-│  Widget Factory    │  Plugin System  │  Theme + Extensions  │
-│  (Complete ✅)     │  (Complete ✅) │  (Complete ✅)       │
-├─────────────────────────────────────────────────────────────┤
-│  layout/           │  state/                                │
-│  VStack, HStack,   │  Signals, Binding, Lifecycle,           │
-│  Grid, Flexbox     │  Scheduler (push-pull)                  │
-│  (Complete ✅)     │  (Complete ✅)                        │
 ├─────────────────────────────────────────────────────────────┤
 │  widget/           │  event/         │  geometry/           │
 │  Widget, Context   │  Mouse, Key     │  Point, Rect         │
-│  (Complete ✅)     │  (Complete ✅) │  (Complete ✅)       │
+│  Canvas, Lifecycle │  Wheel, Focus   │  Constraints         │
+├─────────────────────────────────────────────────────────────┤
+│  internal/render   │  internal/layout│  internal/focus      │
+│  Canvas, Scene     │  Flex, Grid     │  Manager, Ring       │
+│  internal/dirty    │                 │                      │
 ├─────────────────────────────────────────────────────────────┤
 │  gogpu/gg          │  gpucontext     │  coregx/signals      │
 │  2D Graphics       │  Shared Ifaces  │  State Management    │
@@ -268,13 +294,15 @@ gg → wgpu → naga                   ← internal to gg
 
 | Example | Description |
 |---------|-------------|
-| [`examples/hello`](examples/hello) | Full demo: checkbox, radio, ListView (1000 items), M3 theme, event-driven GPU rendering |
+| [`examples/hello`](examples/hello) | Widget demo: checkbox, radio, ListView (1000 items), M3 theme, event-driven GPU rendering |
 | [`examples/signals`](examples/signals) | Reactive signals: TextSignal, ContentSignal, CheckedSignal, SelectedSignal, DisabledSignal |
+| [`examples/taskmanager`](examples/taskmanager) | Full task manager: charts, tables, animations, real-time data |
+| [`examples/gallery`](examples/gallery) | Widget gallery: all 22 widgets, 3 design systems (M3/Fluent/Cupertino), theme switching |
 
 Run any example:
 
 ```bash
-cd examples/signals
+cd examples/gallery
 go run .
 ```
 
@@ -561,13 +589,13 @@ testApp.Window().Frame()  // processes layout + draw
 - [x] TextField widget (cursor, selection, clipboard, validation)
 - [x] Dropdown/Select widget (overlay menu, keyboard nav, scroll)
 - [x] Overlay infrastructure (stack, container, position)
-- [x] Material Design 3 theme (HCT color science, 10 painters)
+- [x] Material Design 3 theme (HCT color science, 21 painters)
 - [x] Keyboard navigation (focus management, Tab/Shift+Tab, shortcuts)
 - [x] ThemeScope (theme override for widget subtrees)
 - [x] Event-driven rendering (0% CPU when idle)
 - [x] Reactive signal bindings for all widgets (TextSignal, CheckedSignal, SelectedSignal, DisabledSignal, ContentSignal)
 
-### Phase 3: Release Candidate (In Progress)
+### Phase 3: Release Candidate ✅
 
 - [x] Retained-mode rendering: dirty tracking, DrawTree, DrawStats (SP1)
 - [x] RepaintBoundary: per-widget pixel caching (SP2)
@@ -575,21 +603,49 @@ testApp.Window().Frame()  // processes layout + draw
 - [x] Slider widget (continuous/discrete, horizontal/vertical, M3 painter)
 - [x] Dialog/Modal widget (backdrop, actions, focus trapping, M3 painter)
 - [x] Animation engine (Tween, Spring, CubicBezier, M3 motion tokens)
+- [x] Animation presets (M3 motion tokens) + orchestration (Stagger, Chain, Repeat)
+- [x] Transitions: enter/exit animations (Fade, Slide, Scale)
 - [x] ScrollView widget (vertical/horizontal/both, wheel+keyboard+drag)
 - [x] TabView widget (lazy content, closeable tabs, keyboard nav)
 - [x] ListView widget (virtualized list, recycling, single/multi selection, M3 painter)
-- [ ] SplitView
-- [ ] Popover/Tooltip
-- [ ] Virtualized lists and grids
-- [ ] Progress indicators
-- [ ] Typography and Icon systems
+- [x] GridView widget (virtualized 2D grid, auto-fit columns, cell recycling)
+- [x] LineChart widget (real-time, multiple series, rolling window)
+- [x] ProgressBar widget (linear, rounded corners, signal binding)
+- [x] Collapsible section widget (animated expand/collapse)
+- [x] Box HBox/VBox direction support
+- [x] Dirty region tracking (internal/dirty)
+- [x] Performance benchmarks (36 across 5 packages)
 
-### Phase 4: Production (v1.0)
+### Phase 4: Production (v1.0) — In Progress
 
-- [ ] IDE-style docking system
+- [x] Circular progress indicator (determinate arc + indeterminate spinner)
+- [x] SplitView (resizable split panels, draggable divider)
+- [x] Popover/Tooltip (12 placements, auto-flip, overlay)
+- [x] TreeView (hierarchical, expand/collapse, virtualized)
+- [x] DataTable (sortable columns, fixed header, virtualized rows)
+- [x] Toolbar (icon buttons, separators, spacers)
+- [x] Menu system (MenuBar + ContextMenu, submenus, shortcuts)
+- [x] IDE-style docking system (border layout, tabbed groups)
+- [x] Drag & drop foundation (DragSource, DropTarget, Manager)
+- [x] Fluent Design theme (9 painters, accent colors)
+- [x] Cupertino theme (9 painters, iOS-style)
+- [x] i18n (CLDR plural rules, RTL detection, LocaleSignal)
+- [x] Icon system (vector paths, 10 Material icons, De Casteljau)
+- [x] Font registry (CSS weight matching, W3C spec)
+- [x] Testing utilities (MockCanvas, MockContext, assertions)
+- [x] Dirty region tracking (merge algorithm, partial repaints)
+- [x] Performance benchmarks (36 across 5 packages)
+- [x] Hover tracking (W3C PointerEventSource, HoverTracker, cursor management)
+- [x] ScreenBounds coordinate system (overlay positioning, hit-testing)
+- [x] Event coordinate transforms (ScrollView content-space dispatch)
+- [x] Inter font full Unicode (Cyrillic, Greek, Vietnamese)
+- [x] MeasureText on Canvas (layout calculations without drawing)
+- [x] FocusManager integration in Window (Tab/Shift+Tab navigation)
+- [x] OnTextInput handler (platform character input API)
+- [x] Task Manager example (charts, tables, animations)
+- [x] Widget Gallery example (all widgets, 3 design systems, theme switching)
 - [ ] Platform accessibility adapters (UIA, AT-SPI2, NSAccessibility)
-- [ ] Drag & drop
-- [ ] Additional themes (Fluent, Cupertino)
+- [ ] Performance optimization pass
 
 ---
 
@@ -630,7 +686,7 @@ go get github.com/gogpu/gg@latest
 | [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU — Vulkan, Metal, GLES, Software |
 | [gogpu/naga](https://github.com/gogpu/naga) | Shader compiler — WGSL to SPIR-V, MSL, GLSL |
 
-**Total ecosystem: 250K+ lines of Pure Go** — no CGO, no Rust, no C.
+**Total ecosystem: 300K+ lines of Pure Go** — no CGO, no Rust, no C.
 
 ---
 

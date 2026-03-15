@@ -9,6 +9,7 @@ import (
 	ui "github.com/gogpu/ui"
 	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
+	ifocus "github.com/gogpu/ui/internal/focus"
 	"github.com/gogpu/ui/overlay"
 	"github.com/gogpu/ui/state"
 	"github.com/gogpu/ui/theme"
@@ -37,6 +38,7 @@ type Window struct {
 	scheduler *state.Scheduler
 	theme     *theme.Theme
 	overlays  *overlay.Stack
+	focusMgr  *ifocus.Manager
 
 	// needsLayout indicates that layout should be recalculated.
 	needsLayout bool
@@ -51,6 +53,15 @@ type Window struct {
 	// lastDrawStats holds per-widget statistics from the most recent
 	// draw traversal. Updated by DrawTo() and the headless draw() path.
 	lastDrawStats widget.DrawStats
+
+	// hoveredWidget tracks the widget currently under the mouse pointer.
+	// Used for sending MouseEnter/MouseLeave events to individual widgets
+	// as the mouse moves across the widget tree.
+	hoveredWidget widget.Widget
+
+	// mouseButtonsHeld tracks pressed mouse buttons to prevent cursor
+	// reset during drag operations (Frame.ResetCursor skipped while dragging).
+	mouseButtonsHeld event.ButtonState
 
 	// windowSize tracks the last known window size in physical pixels.
 	windowSize geometry.Size
@@ -74,6 +85,7 @@ func newWindow(
 		pp:          pp,
 		scheduler:   scheduler,
 		theme:       t,
+		focusMgr:    ifocus.New(nil),
 		needsLayout: true,
 	}
 
@@ -144,6 +156,10 @@ func (w *Window) SetRoot(root widget.Widget) {
 	w.needsLayout = true
 	w.needsRedraw = true
 
+	// Update focus manager with new root so Tab navigation
+	// traverses the correct widget tree.
+	w.focusMgr.SetRoot(root)
+
 	// Mount new tree and mark all widgets as needing redraw.
 	if w.root != nil {
 		widget.MountTree(w.root, w.ctx)
@@ -181,7 +197,9 @@ func (w *Window) setTheme(t *theme.Theme) {
 //
 // Events are first offered to the overlay stack (top overlay has priority).
 // If no overlay consumes the event (and no modal overlay blocks it),
-// the event is propagated to the root widget.
+// key events are offered to the focus manager for Tab/Shift+Tab navigation
+// and registered shortcuts. Finally, unconsumed events are propagated to
+// the root widget.
 func (w *Window) HandleEvent(e event.Event) {
 	if w.root == nil || e == nil {
 		return
@@ -195,8 +213,55 @@ func (w *Window) HandleEvent(e event.Event) {
 		return
 	}
 
+	// Let focus manager intercept Tab/Shift+Tab and shortcuts.
+	if ke, ok := e.(*event.KeyEvent); ok {
+		w.syncContextFocusToManager()
+
+		if w.focusMgr.HandleKeyEvent(ke) {
+			w.syncManagerFocusToContext()
+			return
+		}
+	}
+
+	// Track widget-level hover for MouseEnter/MouseLeave dispatch.
+	// Skip hover updates during drag (button pressed) to prevent cursor
+	// from resetting when dragging over other widgets (e.g., SplitView divider).
+	if me, ok := e.(*event.MouseEvent); ok {
+		switch me.MouseType {
+		case event.MouseMove:
+			if me.Buttons == 0 {
+				w.updateHover(me.Position, me.Buttons, me.Modifiers())
+			}
+		case event.MouseLeave:
+			// Mouse left the window entirely — clear hover state.
+			// The window-level leave event still propagates to the root below.
+			w.clearHover(me.Buttons, me.Modifiers())
+		}
+	}
+
+	// Track mouse button state for drag cursor protection.
+	if me, ok := e.(*event.MouseEvent); ok {
+		w.mouseButtonsHeld = me.Buttons
+	}
+
 	// Dispatch event to root widget.
 	_ = w.root.Event(w.ctx, e)
+
+	// Sync cursor immediately after event dispatch so hover cursor
+	// changes are visible without waiting for the next Frame() tick.
+	// In event-driven mode (ContinuousRender=false), Frame() only
+	// runs when a redraw is needed, but cursor changes from hover
+	// don't trigger redraws.
+	if w.pp != nil {
+		w.syncCursor()
+	}
+
+	// After widget tree processes a mouse press, a widget may have called
+	// ctx.RequestFocus. Sync that to the focus manager so subsequent
+	// Tab navigation starts from the correct position.
+	if me, ok := e.(*event.MouseEvent); ok && me.MouseType == event.MousePress {
+		w.syncContextFocusToManager()
+	}
 }
 
 // HandleResize processes a window resize.
@@ -250,8 +315,12 @@ func (w *Window) Frame() {
 	// Update time.
 	w.ctx.SetNow(frameStart)
 
-	// Reset cursor for this frame.
-	w.ctx.ResetCursor()
+	// Reset cursor for this frame — but not during drag operations.
+	// During drag, the dragging widget (SplitView, Slider) sets cursor
+	// on every MouseMove; resetting here would flash default between frames.
+	if w.mouseButtonsHeld == 0 {
+		w.ctx.ResetCursor()
+	}
 
 	// Flush pending signal changes (may trigger new dirty marks).
 	// The scheduler's flushFn sets persistent needsRedraw flags on widgets.
@@ -354,6 +423,61 @@ func (w *Window) WindowSize() geometry.Size {
 	return w.windowSize
 }
 
+// syncManagerFocusToContext updates the widget context's focused widget
+// to match the focus manager's state. Called after the focus manager
+// moves focus via Tab/Shift+Tab navigation.
+func (w *Window) syncManagerFocusToContext() {
+	focused := w.focusMgr.Focused()
+	if focused == nil {
+		// Focus manager cleared focus.
+		current := w.ctx.FocusedWidget()
+		if current != nil {
+			w.ctx.ReleaseFocus(current)
+		}
+		return
+	}
+
+	// The Focusable interface doesn't embed Widget, but in practice all
+	// focusable widgets implement Widget (they embed WidgetBase). Use
+	// type assertion to get the Widget interface for the context.
+	if fw, ok := focused.(widget.Widget); ok {
+		w.ctx.RequestFocus(fw)
+		w.needsRedraw = true
+		if w.wp != nil {
+			w.wp.RequestRedraw()
+		}
+	}
+}
+
+// syncContextFocusToManager updates the focus manager's state to match
+// the widget context. Called before Tab processing so navigation starts
+// from the widget that received focus via mouse click or programmatic
+// ctx.RequestFocus.
+func (w *Window) syncContextFocusToManager() {
+	ctxFocused := w.ctx.FocusedWidget()
+	mgrFocused := w.focusMgr.Focused()
+
+	// Check if they already agree.
+	if ctxFocused == nil && mgrFocused == nil {
+		return
+	}
+
+	// If context has a focused widget, sync it to the manager.
+	if ctxFocused != nil {
+		if f, ok := ctxFocused.(widget.Focusable); ok {
+			if mgrFocused != f {
+				w.focusMgr.Focus(f)
+			}
+			return
+		}
+	}
+
+	// Context has no focus (or non-focusable widget); clear manager focus.
+	if mgrFocused != nil {
+		w.focusMgr.Blur()
+	}
+}
+
 // layout performs the layout pass on the widget tree and overlays.
 func (w *Window) layout() {
 	if w.root == nil {
@@ -376,6 +500,11 @@ func (w *Window) layout() {
 
 	// Layout overlays with window-sized constraints.
 	w.overlays.Layout(w.ctx, w.windowSize)
+
+	// Refresh focus manager's root after layout so the focusable
+	// widget list reflects any tree changes (widgets added/removed,
+	// visibility/enabled state changes).
+	w.focusMgr.SetRoot(w.root)
 }
 
 // draw performs the draw pass on the widget tree in headless mode.
@@ -482,6 +611,14 @@ func (w *Window) Overlays() *overlay.Stack {
 	return w.overlays
 }
 
+// FocusManager returns the window's focus manager.
+//
+// The focus manager handles Tab/Shift+Tab navigation between focusable
+// widgets and supports registering global keyboard shortcuts.
+func (w *Window) FocusManager() *ifocus.Manager {
+	return w.focusMgr
+}
+
 // windowOverlayManager adapts the Window's overlay.Stack to the
 // widget.OverlayManager interface. This avoids circular imports since
 // the widget package cannot import the overlay package.
@@ -520,6 +657,111 @@ func (m *windowOverlayManager) RemoveOverlay(w widget.Widget) {
 
 // Compile-time check.
 var _ widget.OverlayManager = (*windowOverlayManager)(nil)
+
+// updateHover performs hit-testing to find the widget under the mouse and
+// sends MouseEnter/MouseLeave events to individual widgets as the mouse
+// moves across the widget tree.
+//
+// This uses ScreenBounds (computed during the Draw pass) for correct
+// coordinate mapping, which accounts for scroll offsets, box positions,
+// and all parent transforms.
+func (w *Window) updateHover(pos geometry.Point, buttons event.ButtonState, mods event.Modifiers) {
+	target := hitTest(w.root, pos)
+	if target == w.hoveredWidget {
+		return
+	}
+
+	// Send MouseLeave to the old hovered widget.
+	if w.hoveredWidget != nil {
+		leave := event.NewMouseEvent(
+			event.MouseLeave,
+			event.ButtonNone,
+			buttons,
+			pos, pos,
+			mods,
+		)
+		_ = w.hoveredWidget.Event(w.ctx, leave)
+	}
+
+	// Send MouseEnter to the new hovered widget.
+	if target != nil {
+		enter := event.NewMouseEvent(
+			event.MouseEnter,
+			event.ButtonNone,
+			buttons,
+			pos, pos,
+			mods,
+		)
+		_ = target.Event(w.ctx, enter)
+	}
+
+	w.hoveredWidget = target
+}
+
+// clearHover sends MouseLeave to the currently hovered widget and clears
+// the hover state. Called when the mouse leaves the window entirely.
+func (w *Window) clearHover(buttons event.ButtonState, mods event.Modifiers) {
+	if w.hoveredWidget == nil {
+		return
+	}
+
+	leave := event.NewMouseEvent(
+		event.MouseLeave,
+		event.ButtonNone,
+		buttons,
+		geometry.Point{}, geometry.Point{},
+		mods,
+	)
+	_ = w.hoveredWidget.Event(w.ctx, leave)
+	w.hoveredWidget = nil
+}
+
+// HoveredWidget returns the widget currently under the mouse pointer,
+// or nil if no widget is hovered.
+func (w *Window) HoveredWidget() widget.Widget {
+	return w.hoveredWidget
+}
+
+// hitTest walks the widget tree depth-first and returns the deepest
+// visible widget whose ScreenBounds contains the given position.
+//
+// Children are checked in reverse order (top-most first in z-order)
+// so that overlapping widgets receive events correctly.
+// Returns nil if no widget contains the point.
+func hitTest(root widget.Widget, pos geometry.Point) widget.Widget {
+	if root == nil {
+		return nil
+	}
+	return hitTestRecursive(root, pos)
+}
+
+// hitTestRecursive performs the recursive depth-first search.
+func hitTestRecursive(w widget.Widget, pos geometry.Point) widget.Widget {
+	// Check visibility — invisible widgets don't receive hover events.
+	if base, ok := w.(interface{ IsVisible() bool }); ok && !base.IsVisible() {
+		return nil
+	}
+
+	// Check if this widget's ScreenBounds contains the position.
+	if sb, ok := w.(interface{ ScreenBounds() geometry.Rect }); ok {
+		bounds := sb.ScreenBounds()
+		if !bounds.Contains(pos) {
+			return nil
+		}
+	}
+
+	// Check children in reverse order (topmost first).
+	children := w.Children()
+	for i := len(children) - 1; i >= 0; i-- {
+		child := children[i]
+		if hit := hitTestRecursive(child, pos); hit != nil {
+			return hit
+		}
+	}
+
+	// No child hit — this widget itself is the target.
+	return w
+}
 
 // widgetCursorToPlatform converts a widget.CursorType to gpucontext.CursorShape.
 func widgetCursorToPlatform(c widget.CursorType) gpucontext.CursorShape {

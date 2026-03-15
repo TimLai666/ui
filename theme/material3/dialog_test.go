@@ -192,7 +192,7 @@ type dialogDrawTextCall struct {
 	fontSize float32
 	color    widget.Color
 	bold     bool
-	align    float32
+	align    widget.TextAlign
 }
 
 func (c *dialogMockCanvas) Clear(_ widget.Color)                                  {}
@@ -211,8 +211,12 @@ func (c *dialogMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Colo
 func (c *dialogMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
 func (c *dialogMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)             {}
 
-func (c *dialogMockCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align float32) {
+func (c *dialogMockCanvas) DrawText(text string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align widget.TextAlign) {
 	c.drawTexts = append(c.drawTexts, dialogDrawTextCall{text: text, bounds: bounds, fontSize: fontSize, color: color, bold: bold, align: align})
+}
+
+func (c *dialogMockCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
+	return float32(len([]rune(text))) * fontSize * 0.5
 }
 
 func (c *dialogMockCanvas) DrawImage(_ image.Image, _ geometry.Point)    {}
@@ -221,3 +225,4 @@ func (c *dialogMockCanvas) PushClipRoundRect(_ geometry.Rect, _ float32) {}
 func (c *dialogMockCanvas) PopClip()                                     {}
 func (c *dialogMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *dialogMockCanvas) PopTransform()                                {}
+func (c *dialogMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
