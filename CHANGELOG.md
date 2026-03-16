@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-03-16
+
+### Fixed
+
+- **Inter font with Cyrillic/Greek/Vietnamese** — Replaced Latin-only Inter subsets
+  (68KB) with full Inter 4.1 (412/420KB). Fixes [#49](https://github.com/gogpu/ui/issues/49).
+
+### Changed (Dependencies)
+- **gg** v0.37.1 → **v0.37.3** (universal Render, GLES/Software support)
+- **gogpu** v0.24.2 → **v0.24.4** (env var, PresentTexture, GLES CompatibleSurface)
+- **wgpu** (indirect) v0.21.1 → **v0.21.3** (core validation, DX12/GLES fixes)
+- **naga** (indirect) v0.14.7 → **v0.14.8** (GLSL binding fix)
+
 ## [0.1.1] — 2026-03-15
 
 ### Changed (Dependencies)
