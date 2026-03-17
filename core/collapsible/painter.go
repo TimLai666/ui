@@ -121,7 +121,6 @@ const (
 	textAlignLeft                = widget.TextAlignLeft
 	arrowPadding         float32 = 8
 	arrowSizeRatio       float32 = 0.35
-	arrowStrokeWidth     float32 = 2
 	titleLeftOffset      float32 = 32
 	titleRightPadding    float32 = 8
 	focusRingStrokeWidth float32 = 2

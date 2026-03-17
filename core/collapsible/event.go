@@ -86,7 +86,10 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 			w.istate = stateNormal
 		}
 		ctx.Invalidate()
-		if wasPressed && hdr.Contains(e.Position) {
+		// Toggle if press started on header — regardless of release position.
+		// This prevents missed toggles when mouse moves slightly during click
+		// or when collapsing/expanding changes widget positions.
+		if wasPressed {
 			w.Toggle()
 			return true
 		}

@@ -351,8 +351,12 @@ func TestMouseEvent_PressReleaseOutside(t *testing.T) {
 		geometry.Pt(100, 100), geometry.Pt(100, 100), event.ModNone)
 	handleEvent(w, ctx, release)
 
-	if toggled {
-		t.Error("should not toggle when released outside header")
+	// Toggle IS expected: press started on header, so release anywhere
+	// completes the click. This matches standard button behavior and prevents
+	// missed toggles when mouse moves slightly during click or when
+	// collapsing/expanding changes widget positions.
+	if !toggled {
+		t.Error("should toggle when press was on header (release position ignored)")
 	}
 	if w.istate != stateNormal {
 		t.Errorf("state = %v, want stateNormal", w.istate)
