@@ -105,9 +105,15 @@ func main() {
 			uiApp.Window().DrawTo(widgetCanvas)
 		})
 
-		// Flush any remaining GPU shapes to surface.
-		if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-			log.Printf("render: %v", err)
+		// Render: GPU-direct on real GPUs, universal path on llvmpipe/software.
+		if gg.AcceleratorCanRenderDirect() {
+			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
+				log.Printf("render: %v", err)
+			}
+		} else {
+			if err := canvas.Render(dc.RenderTarget()); err != nil {
+				log.Printf("render: %v", err)
+			}
 		}
 	})
 

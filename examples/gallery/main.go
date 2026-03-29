@@ -228,8 +228,14 @@ func main() {
 			uiApp.Window().DrawTo(widgetCanvas)
 		})
 
-		if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-			log.Printf("render: %v", err)
+		if gg.AcceleratorCanRenderDirect() {
+			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
+				log.Printf("render: %v", err)
+			}
+		} else {
+			if err := canvas.Render(dc.RenderTarget()); err != nil {
+				log.Printf("render: %v", err)
+			}
 		}
 	})
 
