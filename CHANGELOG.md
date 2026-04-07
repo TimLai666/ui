@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] — 2026-04-07
+
+### Fixed
+
+- **MSDF text overlapping on Retina** — gg v0.39.1 → **v0.39.3** fixes large text (28px+)
+  overlapping letters on HiDPI displays (scale=2). (#247 in gg)
+
 ## [0.1.9] — 2026-04-07
 
 ### Changed (Dependencies)
