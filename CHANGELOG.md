@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] — 2026-04-07
+
+### Changed (Dependencies)
+- **gg** v0.39.0 → **v0.39.1**, **gogpu** v0.26.1 → **v0.26.3**, **wgpu** v0.23.9 → **v0.24.2**, **naga** v0.16.6 → **v0.17.0**
+- Metal: texture flicker fix, SDF shapes fix, DX12 encoder pool, DXIL backend
+
 ## [0.1.8] — 2026-04-05
 
 ### Changed (Dependencies)
