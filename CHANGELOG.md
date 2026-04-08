@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] — 2026-04-08
+
+### Changed (Dependencies)
+
+- **gg** v0.39.3 → **v0.39.4**, **gogpu** v0.26.3 → **v0.26.4**, **wgpu** v0.24.3 → **v0.24.4**
+- Software backend: enterprise Present via GDI, core routing, adapter logging
+- `GOGPU_GRAPHICS_API=software` now renders gg examples at ~64 FPS on CPU
+
+## [0.1.11] — 2026-04-07
+
+### Fixed
+
+- **GLES crash on Linux X11** — indirect dependency wgpu updated to v0.24.3 which fixes
+  SIGSEGV in `eglInitialize` caused by X11 display use-after-close (BUG-GLES-001)
+
 ## [0.1.10] — 2026-04-07
 
 ### Fixed
