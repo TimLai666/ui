@@ -74,19 +74,11 @@ func Run(gogpuApp *gogpu.App, uiApp *app.App) error {
 
 // renderLoop holds the state for the managed render loop.
 // Each desktop.Run call creates exactly one renderLoop.
-// swapchainDepth is the maximum number of swapchain buffers. Each buffer
-// must be fully rendered at least once (LoadOpClear + full blit) before
-// damage-aware partial present (LoadOpLoad + scissor) can safely preserve
-// its previous content.
-const swapchainDepth = 3
-
 type renderLoop struct {
-	gogpuApp      *gogpu.App
-	uiApp         *app.App
-	canvas        *ggcanvas.Canvas
-	textureReady  bool            // true after the first Render promotes pendingTexture
-	clearFrames   int             // remaining full-clear frames for swapchain warmup
-	lastDirtyRect image.Rectangle // dirty region from last DrawTo
+	gogpuApp     *gogpu.App
+	uiApp        *app.App
+	canvas       *ggcanvas.Canvas
+	textureReady bool // true after the first Render promotes pendingTexture
 }
 
 // draw is the OnDraw callback registered with gogpu.App.
@@ -125,57 +117,50 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 		// Resize destroys the GPU texture; next FlushPixmap creates a new
 		// pendingTexture that must be promoted via Render on the next frame.
 		rl.textureReady = false
-		rl.clearFrames = swapchainDepth
 	}
 
-	// FrameworkManaged: DrawTo handles background + dirty-region clipping.
-	// Pixmap persists between frames — clean regions keep previous pixels.
+	// ADR-007: Retained-mode compositor.
 	//
-	// RepaintBoundary (ADR-007) uses scene.Scene display lists instead of
-	// GPU textures. Each boundary's Draw checks its boundaryDirty flag and
-	// replays the cached scene via Canvas.ReplayScene when clean. This
-	// eliminates the CPU/GPU split that caused flickering.
-	gg.BeginAcceleratorFrame()
+	// All widget drawing goes to the persistent CPU pixmap via gg.Context
+	// with CPU rasterization forced (RasterizerAnalytic). This ensures ALL
+	// shapes (including rounded rects, shadows) land in the pixmap — not
+	// in the ephemeral GPU SDF queue that gets cleared every frame.
+	//
+	// The GPU is used ONLY for final compositing: the pixmap is uploaded
+	// as a textured quad and presented via FlushGPUWithView. This is the
+	// Chrome/Flutter pattern: paint → raster (CPU) → composite (GPU).
+	//
+	// RepaintBoundary caches child drawing as scene.Scene display lists.
+	// On cache hit, ReplayScene replays into the gg.Context (CPU raster).
+	// On cache miss, child.Draw re-records into SceneCanvas.
+	win := rl.uiApp.Window()
 	cc := rl.canvas.Context()
 
-	// Damage frame: texture ready AND swapchain primed (all buffers rendered).
-	damageFrame := rl.textureReady && rl.clearFrames <= 0
+	// Force CPU rasterization so all shapes go to the persistent pixmap.
+	// GPU SDF shapes are ephemeral (cleared by BeginGPUFrame) and cause
+	// flickering when partial redraws skip parts of the widget tree.
+	savedMode := cc.RasterizerMode()
+	cc.SetRasterizerMode(gg.RasterizerAnalytic)
 
-	// BeginGPUFrame resets frameRendered=false, blocking LoadOpLoad.
-	// Skip it on damage frames so frameRendered=true persists from the
-	// previous frame → enables LoadOpLoad + scissor in encodeBlitOnlyPass.
-	if !damageFrame {
-		cc.BeginGPUFrame()
-	}
-
-	// On damage frames, force CPU rasterization so no SDF shapes are queued
-	// on the main canvas. This enables isBlitOnly() → non-MSAA blit path
-	// with LoadOpLoad + scissor. CPU cost is negligible for small dirty
-	// regions (48×48 spinner = ~150 pixels).
-	var savedMode gg.RasterizerMode
-	if damageFrame {
-		savedMode = cc.RasterizerMode()
-		cc.SetRasterizerMode(gg.RasterizerAnalytic)
-	}
-
-	win := rl.uiApp.Window()
 	widgetCanvas := render.NewCanvas(cc, cw, ch)
 	drawn := win.DrawTo(widgetCanvas)
 
-	if damageFrame {
-		cc.SetRasterizerMode(savedMode)
-	}
+	cc.SetRasterizerMode(savedMode)
 
-	// Clear dirty boundaries after the draw pass. The boundaries have
-	// already re-recorded their scenes during DrawTo (RepaintBoundary.Draw
-	// checks boundaryDirty and re-records when dirty).
 	win.PaintDirtyBoundaries()
 
-	rl.lastDirtyRect = image.Rectangle{}
 	if drawn {
-		rl.markDirtyRegion(win)
+		if win.WasFullRepaint() {
+			rl.canvas.MarkDirty()
+		} else {
+			du := win.LastDirtyUnion()
+			rl.canvas.MarkDirtyRegion(dirtyUnionToPixelRect(du))
+		}
 	}
 
+	// GPU compositing: upload pixmap + present as textured quad.
+	gg.BeginAcceleratorFrame()
+	cc.BeginGPUFrame()
 	rl.present(dc)
 }
 
@@ -205,28 +190,7 @@ func (rl *renderLoop) initCanvas(w, h int) bool {
 // The boundary damage region covers only the screen bounds of changed
 // RepaintBoundary instances, which is often smaller than the union of
 // all dirty widgets.
-func (rl *renderLoop) markDirtyRegion(win *app.Window) {
-	if win.WasFullRepaint() {
-		rl.canvas.MarkDirty()
-		return
-	}
-
-	du := win.LastDirtyUnion()
-
-	// Use boundary damage region if it is tighter (smaller area).
-	bdr := win.BoundaryDamageRegion()
-	if !bdr.IsEmpty() && !du.IsEmpty() {
-		if bdr.Width()*bdr.Height() < du.Width()*du.Height() {
-			du = bdr
-		}
-	}
-
-	dr := dirtyUnionToPixelRect(du)
-	rl.canvas.MarkDirtyRegion(dr)
-	rl.lastDirtyRect = dr
-}
-
-// present implements the ADR-006 zero-readback single-pass compositor.
+// present implements the ADR-007 single-pass compositor.
 //
 // On the first frame (and after resize), the GPU texture does not yet exist
 // — FlushPixmap returns a pendingTexture placeholder. In this case, present
@@ -259,7 +223,6 @@ func (rl *renderLoop) present(dc *gogpu.Context) {
 			return
 		}
 		rl.textureReady = true
-		rl.clearFrames = swapchainDepth
 		return
 	}
 
@@ -289,18 +252,8 @@ func (rl *renderLoop) present(dc *gogpu.Context) {
 	}
 	sw, sh := dc.SurfaceSize()
 
-	// Damage-aware present: after all swapchain buffers have been primed
-	// (clearFrames == 0), pass the dirty rect so encodeBlitOnlyPass uses
-	// LoadOpLoad + SetScissorRect — only the dirty pixels are composited.
-	// During warmup (clearFrames > 0), empty damage → LoadOpClear + full blit
-	// to ensure every swapchain buffer has valid content for LoadOpLoad.
-	damage := rl.lastDirtyRect
-	if rl.clearFrames > 0 {
-		rl.clearFrames--
-		damage = image.Rectangle{}
-	}
-	if err := cc.FlushGPUWithViewDamage(sv, sw, sh, damage); err != nil {
-		log.Printf("desktop: FlushGPUWithViewDamage: %v", err)
+	if err := cc.FlushGPUWithView(sv, sw, sh); err != nil {
+		log.Printf("desktop: FlushGPUWithView: %v", err)
 	}
 }
 

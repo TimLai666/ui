@@ -369,6 +369,17 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 		return
 	}
 
+	// Wire the onBoundaryDirty callback on first Draw so that future
+	// SetNeedsRedraw → propagateDirtyUpward → MarkBoundaryDirty
+	// triggers RequestRedraw on the window. Without this, dirty flags
+	// are set but the render loop never wakes up (ADR-007 fix).
+	if rb.onBoundaryDirty == nil && ctx != nil {
+		capturedCtx := ctx
+		rb.onBoundaryDirty = func(_ *RepaintBoundary) {
+			capturedCtx.InvalidateRect(rb.Bounds())
+		}
+	}
+
 	bounds := rb.Bounds()
 	w := int(bounds.Width())
 	h := int(bounds.Height())

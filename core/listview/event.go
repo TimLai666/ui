@@ -32,6 +32,7 @@ func handleContentMouseEvent(lv *Widget, ctx widget.Context, e *event.MouseEvent
 			old := lv.hoveredIndex
 			lv.hoveredIndex = noHoveredIndex
 			lv.markItemDirty(old)
+			ctx.InvalidateRect(lv.Bounds())
 		}
 		return false
 	default:
@@ -41,7 +42,7 @@ func handleContentMouseEvent(lv *Widget, ctx widget.Context, e *event.MouseEvent
 
 // handleContentMouseMove updates the hovered item index based on mouse position.
 // The event position is already in content space (transformed by ScrollView).
-func handleContentMouseMove(lv *Widget, _ widget.Context, e *event.MouseEvent) bool {
+func handleContentMouseMove(lv *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	// Position is already in content space — ScrollView applies the inverse
 	// of its Draw transform before dispatching to content children.
 	contentY := e.Position.Y
@@ -61,6 +62,7 @@ func handleContentMouseMove(lv *Widget, _ widget.Context, e *event.MouseEvent) b
 		if idx >= 0 {
 			lv.markItemDirty(idx)
 		}
+		ctx.InvalidateRect(lv.Bounds())
 	}
 	return false // Don't consume move events.
 }
