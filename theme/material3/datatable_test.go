@@ -183,6 +183,7 @@ func (c *tableMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color) {
 	c.drawCount++
 	c.rectCount++
 }
+func (c *tableMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
 func (c *tableMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
 	c.strokeRectCount++
@@ -194,6 +195,8 @@ func (c *tableMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ flo
 func (c *tableMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) { c.drawCount++ }
 func (c *tableMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
+}
+func (c *tableMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *tableMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *tableMockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
@@ -211,3 +214,4 @@ func (c *tableMockCanvas) PopClip()                                     {}
 func (c *tableMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *tableMockCanvas) PopTransform()                                {}
 func (c *tableMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *tableMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

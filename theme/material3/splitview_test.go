@@ -208,8 +208,9 @@ type svMockCanvas struct {
 	drawCircleCount int
 }
 
-func (c *svMockCanvas) Clear(_ widget.Color)                     {}
-func (c *svMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color) { c.drawCount++; c.drawRectCount++ }
+func (c *svMockCanvas) Clear(_ widget.Color)                           {}
+func (c *svMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)       { c.drawCount++; c.drawRectCount++ }
+func (c *svMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
 func (c *svMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
 }
@@ -226,6 +227,8 @@ func (c *svMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) {
 func (c *svMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
 }
+func (c *svMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 func (c *svMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *svMockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
 	c.drawCount++
@@ -241,3 +244,4 @@ func (c *svMockCanvas) PopClip()                                     {}
 func (c *svMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *svMockCanvas) PopTransform()                                {}
 func (c *svMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *svMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

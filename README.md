@@ -126,7 +126,6 @@ func main() {
         uiApp.Frame()
         sv := dc.SurfaceView()
         sw, sh := dc.SurfaceSize()
-        gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
         canvas.Draw(func(cc *gg.Context) {
             cc.SetRGBA(0.94, 0.94, 0.94, 1)
             cc.DrawRectangle(0, 0, float64(w), float64(h))
@@ -228,6 +227,7 @@ func main() {
 | `icon` | SVG icons (JetBrains expui), vector path icons, De Casteljau bezier, gg/svg renderer | 97%+ |
 | `i18n` | Internationalization: Locale, Bundle, Translator, CLDR plural rules, RTL, LocaleSignal | 97.9% |
 | `dnd` | Drag and drop: DragSource/DropTarget interfaces, Manager, 5px threshold, Escape cancel | 99.3% |
+| `offscreen` | Headless widget rendering: CPU-only `*image.RGBA` output, no GPU/window/app required | 100% |
 | `uitest` | Testing utilities: MockCanvas, MockContext, event factories, widget helpers, assertions | 93.1% |
 | `internal/dirty` | Dirty region tracking: Collector, Tracker, merge algorithm, partial repaints | 100% |
 
@@ -263,6 +263,8 @@ func main() {
 ├─────────────────────────────────────────────────────────────┤
 │  app/ + FocusManager │  focus/ │  overlay/ │  render/       │
 ├─────────────────────────────────────────────────────────────┤
+│  offscreen/          (headless widget → *image.RGBA)        │
+├─────────────────────────────────────────────────────────────┤
 │  layout/           │  state/         │  a11y/               │
 │  Flex, Stack, Grid │  Signals, Bind  │  ARIA Roles, Tree    │
 ├─────────────────────────────────────────────────────────────┤
@@ -273,8 +275,8 @@ func main() {
 │  Canvas, Lifecycle │  Wheel, Focus   │  Constraints         │
 ├─────────────────────────────────────────────────────────────┤
 │  internal/render   │  internal/layout│  internal/focus      │
-│  Canvas, Scene     │  Flex, Grid     │  Manager, Ring       │
-│  internal/dirty    │                 │                      │
+│  Canvas, Scene,    │  Flex, Grid     │  Manager, Ring       │
+│  ImageCache (LRU)  │  internal/dirty │  Tracker, Collector  │
 ├─────────────────────────────────────────────────────────────┤
 │  gogpu/gg          │  gpucontext     │  coregx/signals      │
 │  2D Graphics       │  Shared Ifaces  │  State Management    │
@@ -305,6 +307,7 @@ gg → wgpu → naga                   ← internal to gg
 | [`examples/taskmanager`](examples/taskmanager) | Full task manager: charts, tables, animations, real-time data |
 | [`examples/gallery`](examples/gallery) | Widget gallery: all 22 widgets, 4 design systems (M3/DevTools/Fluent/Cupertino), theme switching |
 | [`examples/ide`](examples/ide) | GoLand-inspired IDE layout: DevTools theme, toolbar, tree, tabs, terminal, SVG icons |
+| [`examples/modular-compositor`](examples/modular-compositor) | Multi-module offscreen rendering: clock + notification compositor ([#75](https://github.com/gogpu/ui/issues/75)) |
 
 Run any example:
 
@@ -544,6 +547,24 @@ button := a11y.NewNode(a11y.RoleButton, "Save")  // stable uint64 ID
 tree.Insert(root, button)
 ```
 
+### Offscreen Rendering
+
+```go
+// Render widgets to image without GPU, window, or app
+r := offscreen.NewRenderer(400, 120)
+r.Render(primitives.Text("Hello, World!").FontSize(24))
+img := r.Image() // *image.RGBA — ready for png.Encode, testing, compositing
+
+// HiDPI with dark theme and white background
+dark := material3.NewDark(widget.Hex(0x00BFA5))
+r := offscreen.NewRenderer(800, 240,
+    offscreen.WithTheme(dark),
+    offscreen.WithScale(2.0),
+    offscreen.WithBackground(widget.ColorWhite),
+)
+r.Render(myWidgetTree)
+```
+
 ### Window Integration
 
 ```go
@@ -651,6 +672,12 @@ testApp.Window().Frame()  // processes layout + draw
 - [x] OnTextInput handler (platform character input API)
 - [x] Task Manager example (charts, tables, animations)
 - [x] Widget Gallery example (all widgets, 4 design systems, theme switching)
+- [x] Incremental rendering pipeline (ADR-004): frame skip, persistent pixmap, dirty regions
+- [x] Auto RepaintBoundary in ListView (per-item pixel caching)
+- [x] DrawStats observability (CachedWidgets, DirtyRegionCount)
+- [x] Tracker.Intersects() fast path in RepaintBoundary
+- [x] Centralized ImageCache with LRU eviction (64MB, thread-safe)
+- [x] Offscreen renderer (headless widget → *image.RGBA, no GPU/window)
 - [ ] Platform accessibility adapters (UIA, AT-SPI2, NSAccessibility)
 - [ ] Performance optimization pass
 

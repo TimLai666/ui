@@ -1,6 +1,9 @@
 package material3
 
-import "github.com/gogpu/ui/widget"
+import (
+	"github.com/gogpu/ui/theme"
+	"github.com/gogpu/ui/widget"
+)
 
 // Theme provides Material 3 (Material You) design tokens.
 //
@@ -61,6 +64,61 @@ func NewDark(seedColor widget.Color) *Theme {
 // IsDark returns true if this theme uses a dark color scheme.
 func (t *Theme) IsDark() bool {
 	return t.dark
+}
+
+// AsTheme converts the Material 3 theme to a [theme.Theme] for use with
+// the generic theme system. This maps M3 color roles to the shared
+// [theme.ColorPalette] structure, preserving background, surface, and
+// on-color relationships.
+//
+// Use this when you need to pass an M3 theme to APIs that accept
+// [*theme.Theme], such as [app.WithTheme] or [app.App.SetTheme]:
+//
+//	m3 := material3.New(widget.Hex(0x6750A4))
+//	uiApp := app.New(app.WithTheme(m3.AsTheme()))
+func (t *Theme) AsTheme() *theme.Theme {
+	cs := t.Colors
+	mode := theme.ModeLight
+	name := "Material 3"
+	shadows := theme.DefaultShadowsLight()
+	if t.dark {
+		mode = theme.ModeDark
+		name = "Material 3 Dark"
+		shadows = theme.DefaultShadowsDark()
+	}
+
+	return &theme.Theme{
+		Name: name,
+		Mode: mode,
+		Colors: theme.ColorPalette{
+			Primary:        cs.Primary,
+			PrimaryLight:   cs.PrimaryContainer,
+			PrimaryDark:    cs.OnPrimaryContainer,
+			Secondary:      cs.Secondary,
+			SecondaryLight: cs.SecondaryContainer,
+			SecondaryDark:  cs.OnSecondaryContainer,
+			Background:     cs.Background,
+			Surface:        cs.Surface,
+			SurfaceVariant: cs.SurfaceVariant,
+			Error:          cs.Error,
+			Warning:        cs.Error, // M3 has no dedicated warning role
+			Success:        cs.Tertiary,
+			Info:           cs.Primary,
+			OnPrimary:      cs.OnPrimary,
+			OnSecondary:    cs.OnSecondary,
+			OnBackground:   cs.OnBackground,
+			OnSurface:      cs.OnSurface,
+			OnError:        cs.OnError,
+			Divider:        cs.OutlineVariant,
+			Outline:        cs.Outline,
+			Shadow:         widget.RGBA(0, 0, 0, 0.20),
+		},
+		Typography: theme.DefaultTypography(),
+		Spacing:    theme.DefaultSpacing(),
+		Shadows:    shadows,
+		Radii:      theme.DefaultRadii(),
+		Extensions: make(map[string]any),
+	}
 }
 
 // OnSurface returns the default text/icon color for surface backgrounds.

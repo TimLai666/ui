@@ -29,8 +29,6 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/gogpu/gg/gpu" // enable GPU SDF acceleration
-
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/integration/ggcanvas"
 	"github.com/gogpu/gogpu"
@@ -100,9 +98,7 @@ func main() {
 			}
 		}
 
-		gg.BeginAcceleratorFrame()
 		cc := canvas.Context()
-		cc.BeginGPUFrame()
 
 		// Dark background.
 		cc.SetRGBA(0.08, 0.08, 0.12, 1)
@@ -124,9 +120,10 @@ func main() {
 			cc.DrawImage(buf, float64(f.X), float64(f.Y))
 		}
 
-		// Present via ggcanvas.
+		// Present: upload pixmap to GPU texture and blit to surface.
 		canvas.MarkDirty()
-		if err := canvas.Render(dc.RenderTarget()); err != nil {
+		rt := dc.RenderTarget()
+		if err := canvas.Render(rt); err != nil {
 			log.Printf("canvas.Render: %v", err)
 		}
 	})

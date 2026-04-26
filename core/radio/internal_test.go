@@ -1430,6 +1430,7 @@ type internalDrawRoundRectCall struct {
 
 func (c *internalMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *internalMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              {}
+func (c *internalMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *internalMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 
 func (c *internalMockCanvas) DrawRoundRect(r geometry.Rect, color widget.Color, radius float32) {
@@ -1445,6 +1446,8 @@ func (c *internalMockCanvas) DrawCircle(center geometry.Point, radius float32, c
 
 func (c *internalMockCanvas) StrokeCircle(center geometry.Point, radius float32, color widget.Color, strokeWidth float32) {
 	c.strokeCircles = append(c.strokeCircles, internalStrokeCircleCall{center: center, radius: radius, color: color, strokeWidth: strokeWidth})
+}
+func (c *internalMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 
 func (c *internalMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
@@ -1464,6 +1467,7 @@ func (c *internalMockCanvas) PopClip()                                     {}
 func (c *internalMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalMockCanvas) PopTransform()                                {}
 func (c *internalMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *internalMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- onChange dedup test ---
 

@@ -268,6 +268,79 @@ func TestTheme_OnSurface(t *testing.T) {
 	}
 }
 
+func TestAsTheme_Light(t *testing.T) {
+	m3 := material3.New(m3Purple)
+	generic := m3.AsTheme()
+
+	if generic == nil {
+		t.Fatal("AsTheme() returned nil")
+	}
+	if generic.Name != "Material 3" {
+		t.Errorf("Name = %q, want %q", generic.Name, "Material 3")
+	}
+
+	// Background should match M3 Background.
+	if generic.Colors.Background != m3.Colors.Background {
+		t.Errorf("Background = %+v, want %+v", generic.Colors.Background, m3.Colors.Background)
+	}
+
+	// Primary should match M3 Primary.
+	if generic.Colors.Primary != m3.Colors.Primary {
+		t.Errorf("Primary = %+v, want %+v", generic.Colors.Primary, m3.Colors.Primary)
+	}
+
+	// OnSurface should match M3 OnSurface.
+	if generic.Colors.OnSurface != m3.Colors.OnSurface {
+		t.Errorf("OnSurface = %+v, want %+v", generic.Colors.OnSurface, m3.Colors.OnSurface)
+	}
+
+	// Surface should match M3 Surface.
+	if generic.Colors.Surface != m3.Colors.Surface {
+		t.Errorf("Surface = %+v, want %+v", generic.Colors.Surface, m3.Colors.Surface)
+	}
+
+	// Extensions should not be nil.
+	if generic.Extensions == nil {
+		t.Error("Extensions should not be nil")
+	}
+}
+
+func TestAsTheme_Dark(t *testing.T) {
+	m3 := material3.NewDark(m3Purple)
+	generic := m3.AsTheme()
+
+	if generic == nil {
+		t.Fatal("AsTheme() returned nil")
+	}
+	if generic.Name != "Material 3 Dark" {
+		t.Errorf("Name = %q, want %q", generic.Name, "Material 3 Dark")
+	}
+
+	// Background should be dark (low luminance).
+	bg := generic.Colors.Background
+	lum := 0.299*bg.R + 0.587*bg.G + 0.114*bg.B
+	if lum > 0.15 {
+		t.Errorf("dark Background luminance = %f, should be < 0.15", lum)
+	}
+
+	// Error should match M3 Error.
+	if generic.Colors.Error != m3.Colors.Error {
+		t.Errorf("Error = %+v, want %+v", generic.Colors.Error, m3.Colors.Error)
+	}
+}
+
+func TestAsTheme_DifferentSeeds(t *testing.T) {
+	purple := material3.New(widget.Hex(0x6750A4))
+	blue := material3.New(widget.Hex(0x0061A4))
+
+	purpleGeneric := purple.AsTheme()
+	blueGeneric := blue.AsTheme()
+
+	if colorEqual(purpleGeneric.Colors.Primary, blueGeneric.Colors.Primary) {
+		t.Error("different seeds should produce different primary colors")
+	}
+}
+
 // --- Test helpers ---
 
 func assertNonZero(t *testing.T, name string, c widget.Color) {

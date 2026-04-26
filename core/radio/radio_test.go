@@ -952,6 +952,7 @@ type drawRoundRectCall struct {
 
 func (c *recordingCanvas) Clear(_ widget.Color)                                  {}
 func (c *recordingCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              {}
+func (c *recordingCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *recordingCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 func (c *recordingCanvas) DrawRoundRect(r geometry.Rect, color widget.Color, radius float32) {
 	c.drawRoundRects = append(c.drawRoundRects, drawRoundRectCall{r: r, color: color, radius: radius})
@@ -964,6 +965,8 @@ func (c *recordingCanvas) DrawCircle(center geometry.Point, radius float32, colo
 
 func (c *recordingCanvas) StrokeCircle(center geometry.Point, radius float32, color widget.Color, strokeWidth float32) {
 	c.strokeCircles = append(c.strokeCircles, strokeCircleCall{center: center, radius: radius, color: color, strokeWidth: strokeWidth})
+}
+func (c *recordingCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 
 func (c *recordingCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
@@ -983,6 +986,7 @@ func (c *recordingCanvas) PopClip()                                     {}
 func (c *recordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordingCanvas) PopTransform()                                {}
 func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *recordingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- mockCanvas for non-recording tests ---
 
@@ -990,12 +994,15 @@ type mockCanvas struct{}
 
 func (c *mockCanvas) Clear(_ widget.Color)                                                  {}
 func (c *mockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)                              {}
+func (c *mockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)                        {}
 func (c *mockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32)                 {}
 func (c *mockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32)              {}
 func (c *mockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float32, _ float32) {}
 func (c *mockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)                {}
 func (c *mockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32)   {}
-func (c *mockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)               {}
+func (c *mockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
+func (c *mockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
 
 func (c *mockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
 }
@@ -1011,6 +1018,7 @@ func (c *mockCanvas) PopClip()                                     {}
 func (c *mockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *mockCanvas) PopTransform()                                {}
 func (c *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- Signal Binding Tests (public API) ---
 

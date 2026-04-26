@@ -229,6 +229,8 @@ func (c *tabMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color) {
 	c.drawRectCount++
 }
 
+func (c *tabMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
+
 func (c *tabMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 
 func (c *tabMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) {}
@@ -240,6 +242,8 @@ func (c *tabMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float
 func (c *tabMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) {}
 
 func (c *tabMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
+func (c *tabMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 
 func (c *tabMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {
 	c.drawLineCount++
@@ -259,3 +263,4 @@ func (c *tabMockCanvas) PopClip()                                     {}
 func (c *tabMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *tabMockCanvas) PopTransform()                                {}
 func (c *tabMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *tabMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

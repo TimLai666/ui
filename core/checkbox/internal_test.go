@@ -1050,6 +1050,7 @@ type internalDrawLineCall struct {
 
 func (c *internalMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *internalMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              {}
+func (c *internalMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *internalMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 
 func (c *internalMockCanvas) DrawRoundRect(r geometry.Rect, color widget.Color, radius float32) {
@@ -1062,6 +1063,8 @@ func (c *internalMockCanvas) StrokeRoundRect(r geometry.Rect, color widget.Color
 
 func (c *internalMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)              {}
 func (c *internalMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
+func (c *internalMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 
 func (c *internalMockCanvas) DrawLine(from, to geometry.Point, color widget.Color, strokeWidth float32) {
 	c.drawLines = append(c.drawLines, internalDrawLineCall{from: from, to: to, color: color, strokeWidth: strokeWidth})
@@ -1082,6 +1085,7 @@ func (c *internalMockCanvas) PopClip()                                     {}
 func (c *internalMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalMockCanvas) PopTransform()                                {}
 func (c *internalMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *internalMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- Signal Binding Tests ---
 

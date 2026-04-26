@@ -226,6 +226,7 @@ type treeMockCanvas struct {
 
 func (c *treeMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *treeMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              { c.drawCount++ }
+func (c *treeMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *treeMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *treeMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -238,6 +239,8 @@ func (c *treeMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ floa
 func (c *treeMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) { c.drawCount++ }
 func (c *treeMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
+}
+func (c *treeMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *treeMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -258,3 +261,4 @@ func (c *treeMockCanvas) PopClip()                                     {}
 func (c *treeMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *treeMockCanvas) PopTransform()                                {}
 func (c *treeMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *treeMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

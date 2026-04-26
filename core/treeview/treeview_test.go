@@ -1969,11 +1969,14 @@ type mockCanvas struct {
 
 func (c *mockCanvas) Clear(widget.Color)                                            {}
 func (c *mockCanvas) DrawRect(geometry.Rect, widget.Color)                          { c.drawRectCalls++ }
+func (c *mockCanvas) FillRectDirect(geometry.Rect, widget.Color)                    {}
 func (c *mockCanvas) StrokeRect(geometry.Rect, widget.Color, float32)               { c.strokeRectCalls++ }
 func (c *mockCanvas) DrawRoundRect(geometry.Rect, widget.Color, float32)            { c.drawRoundRectCalls++ }
 func (c *mockCanvas) StrokeRoundRect(geometry.Rect, widget.Color, float32, float32) {}
 func (c *mockCanvas) DrawCircle(geometry.Point, float32, widget.Color)              { c.drawCircleCalls++ }
 func (c *mockCanvas) StrokeCircle(geometry.Point, float32, widget.Color, float32)   {}
+func (c *mockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 func (c *mockCanvas) DrawLine(geometry.Point, geometry.Point, widget.Color, float32) {
 	c.drawLineCalls++
 }
@@ -1991,6 +1994,7 @@ func (c *mockCanvas) PopClip()                                  { c.popClipCalls
 func (c *mockCanvas) PushTransform(geometry.Point)              {}
 func (c *mockCanvas) PopTransform()                             {}
 func (c *mockCanvas) TransformOffset() geometry.Point           { return geometry.Point{} }
+func (c *mockCanvas) ClipBounds() geometry.Rect                 { return geometry.NewRect(0, 0, 10000, 10000) }
 
 type mockScheduler struct{}
 

@@ -159,6 +159,7 @@
 | `registry/` | Widget registry | `Registry`, `Category`, widget/context/canvas type aliases |
 | `plugin/` | Plugin system | `Plugin`, `Manager`, `PluginContext`, `Dependency`, `AssetLoader` |
 | `render/` | Public Canvas factory | `NewCanvas` (wraps internal/render) |
+| `offscreen/` | Headless widget rendering (no GPU/window) | `Renderer`, `NewRenderer`, `WithTheme`, `WithScale`, `WithBackground` |
 
 ### Internal Packages
 
@@ -795,6 +796,53 @@ canvas := render.NewCanvas(ggContext, width, height)
 ```
 
 This wraps `internal/render.NewCanvas` and returns a `widget.Canvas`.
+
+### Offscreen Rendering
+
+The `offscreen/` package renders widget trees into `*image.RGBA` without a GPU,
+window, or running application. It uses CPU-only rasterization via `gg.NewContext`:
+
+```go
+r := offscreen.NewRenderer(400, 120)
+r.Render(primitives.Text("Hello").FontSize(24))
+img := r.Image() // *image.RGBA
+```
+
+Options: `WithTheme` (default: M3 light), `WithScale` (HiDPI), `WithBackground`.
+
+Internally, `offscreen.Renderer.Render()` creates a `widget.ContextImpl`, runs
+`Layout()` to size the widget tree, then `widget.DrawTree()` to render it
+(including `StampScreenOrigin` for correct screen-space coordinates).
+
+Use cases: screenshot testing, multi-process compositors, PDF/image export, CI.
+
+### Incremental Rendering (ADR-004)
+
+The rendering pipeline uses a three-level incremental strategy to minimize per-frame work:
+
+```
+Level 1 — Frame Skip:
+  DrawTo() returns false when tree is clean → 0 CPU, 0 GPU upload
+
+Level 2 — Dirty Region Redraw (persistent pixmap):
+  dirty.Collector walks tree → dirty.Tracker collects regions → Optimize merges
+  For each region: PushClip → DrawRect(background) → draw intersecting widgets → PopClip
+  Pixmap persists between frames (Qt QBackingStore pattern)
+
+Level 3 — RepaintBoundary Cache (subtree isolation):
+  Container widgets auto-wrap children (ListView items)
+  Cache hit → DrawImage blit (zero re-render)
+  Cache miss → offscreen render → centralized ImageCache (LRU, 64MB)
+```
+
+Key components:
+- `dirty.Tracker` + `dirty.Collector` — region tracking with merge optimization
+- `RepaintBoundary` — pixel caching with scene.Renderer for large subtrees
+- `ImageCache` — centralized LRU cache with memory budget and eviction
+- `DrawStatsProvider` — observability (CachedWidgets, DirtyWidgets)
+- `DirtyTrackerProvider` — O(regions) `Intersects()` fast path in RepaintBoundary
+
+See `docs/dev/architecture/ADR-004-INCREMENTAL-RENDERING.md` for full design.
 
 ---
 

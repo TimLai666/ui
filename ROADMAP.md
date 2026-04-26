@@ -1,7 +1,7 @@
 # gogpu/ui Roadmap
 
 > **Version:** 0.4.x (Phase 3 Complete, Phase 4 Near Complete)
-> **Updated:** March 2026
+> **Updated:** April 2026
 > **Go Version:** 1.25+
 
 ---
@@ -263,9 +263,16 @@ v1.0.0  → Production (when ready)
 | Toolbar widget | Action bar with items and overflow |
 | Menu widget | Menu bar, context menu, menu items |
 | Dirty Region Tracking | Region collector, merge algorithm, partial repaints |
+| **Incremental Rendering (ADR-004)** | Frame skip, persistent pixmap, dirty regions, RepaintBoundary compositing |
+| **ListView auto RepaintBoundary** | Per-item pixel caching for virtualized lists |
+| **DrawStats observability** | CachedWidgets, DirtyRegionCount, DrawStatsProvider |
+| **Tracker.Intersects() fast path** | O(regions) spatial check in RepaintBoundary |
+| **Centralized ImageCache** | LRU eviction (64MB), thread-safe, per-Window lifecycle |
+| **Offscreen Renderer** | Headless widget → *image.RGBA without GPU/window |
 | Performance Benchmarks | 36 benchmarks across 5 packages |
 | Task Manager Example | Full-featured demo with charts, tables, animations |
 | Widget Gallery Example | All 22 widgets, 4 design systems, theme switching |
+| Modular Compositor Example | Multi-module offscreen rendering (Magic Mirror pattern) |
 | Hover Tracking | W3C PointerEventSource, HoverTracker, cursor management |
 | ScreenBounds | Screen-space coordinate transform for overlay positioning |
 | Event Coordinate Transform | ScrollView mouse/wheel coordinate transforms |
@@ -277,8 +284,62 @@ v1.0.0  → Production (when ready)
 |------|-------------|----------|
 | Accessibility adapters | Platform-specific AT-SPI / UIA adapters | P1 |
 | Documentation polish | Comprehensive API docs and guides | P2 |
-| Performance optimization | Profiling, hot path optimization | P2 |
+| **Rendering Performance (ADR-006)** | **Zero-readback compositor + GPU layers** | **P0** |
 | API review | Pre-release API audit and freeze | P0 |
+
+---
+
+## Rendering Performance Roadmap (ADR-004 + ADR-006)
+
+> **Architecture:** Hybrid CPU+GPU — industry standard (Chrome/Skia, Flutter, GTK4, Qt).
+> CPU text atlas + GPU shapes + GPU compositor. Validated by source-level analysis of 8 engines.
+
+### Current State (Intel Iris Xe, 60fps)
+
+| Metric | Before (v0.1.13) | After Phase 2 (current) |
+|--------|------------------|------------------------|
+| GPU (spinner, small window) | 22% | **7%** |
+| GPU (spinner, full screen) | 25% | **18%** |
+| GPU idle (static UI) | 0% | 0% |
+| GPU readback per frame | 1 (full pixmap) | **0** |
+| Render passes | 2 | **1** (compositor, damage-aware) |
+| Texture upload | Full pixmap (1.92MB) | Partial dirty region (62KB) |
+
+### Phase 1: Zero-Readback Compositor ✅ Done
+
+Single-pass compositor (Flutter OffsetLayer / Chrome cc pattern):
+- `FlushPixmap`: CPU pixmap upload without GPU readback
+- `DrawGPUTextureBase`: pixmap as base layer (drawn first)
+- `FlushGPUWithView`: GPU shapes overlay (same render pass)
+
+### Phase 2: CPU-Direct Rendering + Damage-Aware Present ✅ Done
+
+- **CPU-direct rendering**: animated widgets (spinner) forced through CPU AnalyticFiller, bypassing GPU SDF accelerator. Keeps main compositor canvas SDF-free.
+- **Damage-aware compositor**: `FlushGPUWithViewDamage` with dirty rect → `LoadOpLoad` + `SetScissorRect`. GPU processes only changed pixels (48×48 for spinner).
+- **Swapchain warmup**: first 3 frames `LoadOpClear` + full blit before enabling `LoadOpLoad`.
+- **Conditional `BeginGPUFrame`**: skipped on damage frames to preserve `frameRendered=true`.
+- **Force `RasterizerAnalytic`** on damage frames → `isBlitOnly()=true` → non-MSAA blit path.
+
+### Phase 3: Scene-Aware GPU Dispatch — Future
+
+GPU shapes dispatched directly without full-surface MSAA:
+- GPUSceneRenderer batches SDF/convex/stencil per RepaintBoundary
+- Per-layer GPU dispatch (MSAA at layer size, not window size)
+
+### Phase 4: Vello Compute Integration — Future
+
+Full Vello 9-stage compute pipeline for GPU-accelerated path rendering:
+- `internal/gpu/tilecompute/` already exists (CPU reference)
+- GPU dispatch via wgpu compute shaders
+
+### Performance Targets
+
+| Metric | Phase 1 | Phase 2 ✅ | Phase 3 | Phase 4 |
+|--------|---------|-----------|---------|---------|
+| GPU % (small window) | 8% | **7%** | <3% | <1% |
+| GPU % (full screen) | 20% | **18%** | <5% | <3% |
+| GPU readback | 0 | 0 | 0 | 0 |
+| MSAA size | Full window | Full window (scissored) | Widget size | N/A (compute) |
 
 ---
 
@@ -300,13 +361,13 @@ v1.0.0  → Production (when ready)
 
 | Dependency | Version | Purpose | Status |
 |------------|---------|---------|--------|
-| gogpu/gg | v0.37.1 | 2D rendering + scene.Scene | ✅ Integrated |
-| gogpu/gpucontext | v0.10.0 | Shared interfaces | ✅ Integrated |
-| gogpu/gogpu | v0.24.2 | Windowing (examples) | ✅ Integrated |
+| gogpu/gg | v0.43.1 | 2D rendering + scene.Scene | ✅ Integrated |
+| gogpu/gpucontext | v0.15.0 | Shared interfaces | ✅ Integrated |
+| gogpu/gogpu | v0.29.4 | Windowing (examples) | ✅ Integrated |
 | coregx/signals | v0.1.0 | State management | ✅ Integrated |
-| golang.org/x/image | v0.37.0 | Inter font (standard) | ✅ Integrated |
+| golang.org/x/image | v0.39.0 | Inter font (standard) | ✅ Integrated |
 
-**Indirect:** go-text/typesetting v0.3.4, gogpu/gputypes v0.3.0, gogpu/wgpu v0.21.1, gogpu/naga v0.14.7, golang.org/x/text v0.35.0
+**Indirect:** go-text/typesetting v0.3.4, gogpu/gputypes v0.5.0, gogpu/wgpu v0.26.4, gogpu/naga v0.17.6, golang.org/x/text v0.36.0
 
 ---
 

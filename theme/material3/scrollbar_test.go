@@ -152,6 +152,7 @@ type scrollbarDrawRoundRectCall struct {
 
 func (c *scrollbarMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *scrollbarMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              {}
+func (c *scrollbarMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *scrollbarMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 
 func (c *scrollbarMockCanvas) DrawRoundRect(r geometry.Rect, color widget.Color, radius float32) {
@@ -162,7 +163,9 @@ func (c *scrollbarMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _
 }
 func (c *scrollbarMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)              {}
 func (c *scrollbarMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {}
-func (c *scrollbarMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)             {}
+func (c *scrollbarMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
+func (c *scrollbarMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
 func (c *scrollbarMockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
 }
 
@@ -176,3 +179,4 @@ func (c *scrollbarMockCanvas) PopClip()                                     {}
 func (c *scrollbarMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *scrollbarMockCanvas) PopTransform()                                {}
 func (c *scrollbarMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *scrollbarMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

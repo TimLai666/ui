@@ -263,11 +263,14 @@ func (m *mockCanvas) DrawLine(from, to geometry.Point, color widget.Color, strok
 // Stub methods required by the Canvas interface.
 func (m *mockCanvas) Clear(widget.Color)                                            {}
 func (m *mockCanvas) DrawRect(geometry.Rect, widget.Color)                          {}
+func (m *mockCanvas) FillRectDirect(geometry.Rect, widget.Color)                    {}
 func (m *mockCanvas) StrokeRect(geometry.Rect, widget.Color, float32)               {}
 func (m *mockCanvas) DrawRoundRect(geometry.Rect, widget.Color, float32)            {}
 func (m *mockCanvas) StrokeRoundRect(geometry.Rect, widget.Color, float32, float32) {}
 func (m *mockCanvas) DrawCircle(geometry.Point, float32, widget.Color)              {}
 func (m *mockCanvas) StrokeCircle(geometry.Point, float32, widget.Color, float32)   {}
+func (m *mockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 func (m *mockCanvas) DrawText(string, geometry.Rect, float32, widget.Color, bool, widget.TextAlign) {
 }
 
@@ -281,6 +284,7 @@ func (m *mockCanvas) PopClip()                                  {}
 func (m *mockCanvas) PushTransform(geometry.Point)              {}
 func (m *mockCanvas) PopTransform()                             {}
 func (m *mockCanvas) TransformOffset() geometry.Point           { return geometry.Point{} }
+func (m *mockCanvas) ClipBounds() geometry.Rect                 { return geometry.NewRect(0, 0, 10000, 10000) }
 
 func TestDraw_EmptyOps(t *testing.T) {
 	c := &mockCanvas{}

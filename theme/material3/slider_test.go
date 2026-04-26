@@ -330,6 +330,7 @@ type sliderMockCanvas struct {
 
 func (c *sliderMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *sliderMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              { c.drawCount++ }
+func (c *sliderMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *sliderMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *sliderMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -344,6 +345,8 @@ func (c *sliderMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Colo
 func (c *sliderMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
 	c.strokeCircleCount++
+}
+func (c *sliderMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *sliderMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *sliderMockCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
@@ -360,3 +363,4 @@ func (c *sliderMockCanvas) PopClip()                                     {}
 func (c *sliderMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *sliderMockCanvas) PopTransform()                                {}
 func (c *sliderMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *sliderMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

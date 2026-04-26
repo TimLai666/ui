@@ -100,7 +100,6 @@ func main() {
         }
         sv := dc.SurfaceView()
         sw, sh := dc.SurfaceSize()
-        gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
         canvas.Draw(func(cc *gg.Context) {
             cc.SetRGBA(0.94, 0.94, 0.94, 1)
             cc.DrawRectangle(0, 0, float64(cw), float64(ch))

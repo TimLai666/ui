@@ -228,6 +228,7 @@ func (c *tbMockCanvas) Clear(_ widget.Color) {}
 func (c *tbMockCanvas) DrawRect(r geometry.Rect, color widget.Color) {
 	c.drawRects = append(c.drawRects, tbDrawRectCall{r: r, color: color})
 }
+func (c *tbMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
 func (c *tbMockCanvas) StrokeRect(r geometry.Rect, color widget.Color, sw float32) {
 	c.strokeRects = append(c.strokeRects, tbStrokeRectCall{r: r, color: color, strokeWidth: sw})
 }
@@ -235,6 +236,8 @@ func (c *tbMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32)
 func (c *tbMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float32, _ float32) {}
 func (c *tbMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)                {}
 func (c *tbMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32)   {}
+func (c *tbMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 func (c *tbMockCanvas) DrawLine(from, to geometry.Point, color widget.Color, sw float32) {
 	c.drawLines = append(c.drawLines, tbDrawLineCall{from: from, to: to, color: color, strokeWidth: sw})
 }
@@ -248,3 +251,4 @@ func (c *tbMockCanvas) PopClip()                                               {
 func (c *tbMockCanvas) PushTransform(_ geometry.Point)                         {}
 func (c *tbMockCanvas) PopTransform()                                          {}
 func (c *tbMockCanvas) TransformOffset() geometry.Point                        { return geometry.Point{} }
+func (c *tbMockCanvas) ClipBounds() geometry.Rect                              { return geometry.NewRect(0, 0, 10000, 10000) }

@@ -52,12 +52,15 @@ type canvasRecorder struct {
 
 func (c *canvasRecorder) Clear(_ widget.Color)                                                  {}
 func (c *canvasRecorder) DrawRect(_ geometry.Rect, _ widget.Color)                              { c.drawRectCount++ }
+func (c *canvasRecorder) FillRectDirect(_ geometry.Rect, _ widget.Color)                        {}
 func (c *canvasRecorder) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32)                 {}
 func (c *canvasRecorder) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32)              {}
 func (c *canvasRecorder) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float32, _ float32) {}
 func (c *canvasRecorder) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)                { c.drawCircleCount++ }
 func (c *canvasRecorder) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32)   {}
-func (c *canvasRecorder) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)               {}
+func (c *canvasRecorder) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
+func (c *canvasRecorder) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
 func (c *canvasRecorder) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
 }
 
@@ -71,6 +74,7 @@ func (c *canvasRecorder) PopClip()                                     {}
 func (c *canvasRecorder) PushTransform(_ geometry.Point)               {}
 func (c *canvasRecorder) PopTransform()                                {}
 func (c *canvasRecorder) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *canvasRecorder) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // Compile-time check.
 var _ widget.Canvas = (*canvasRecorder)(nil)

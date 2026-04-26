@@ -172,6 +172,7 @@ type cpMockCanvas struct {
 
 func (c *cpMockCanvas) Clear(_ widget.Color)                                  {}
 func (c *cpMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color)              { c.drawCount++ }
+func (c *cpMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *cpMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *cpMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -183,6 +184,8 @@ func (c *cpMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) {
 func (c *cpMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
 	c.strokeCircleCount++
+}
+func (c *cpMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *cpMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -203,3 +206,4 @@ func (c *cpMockCanvas) PopClip()                                     {}
 func (c *cpMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *cpMockCanvas) PopTransform()                                {}
 func (c *cpMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *cpMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

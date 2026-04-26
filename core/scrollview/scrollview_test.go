@@ -46,12 +46,15 @@ type stubCanvas struct {
 
 func (c *stubCanvas) Clear(_ widget.Color)                                                  {}
 func (c *stubCanvas) DrawRect(_ geometry.Rect, _ widget.Color)                              {}
+func (c *stubCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)                        {}
 func (c *stubCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32)                 {}
 func (c *stubCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32)              {}
 func (c *stubCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float32, _ float32) {}
 func (c *stubCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color)                {}
 func (c *stubCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32)   {}
-func (c *stubCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32)               {}
+func (c *stubCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
+func (c *stubCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
 func (c *stubCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
 }
 
@@ -77,6 +80,7 @@ func (c *stubCanvas) PopTransform() {
 	c.transformsPopped++
 }
 func (c *stubCanvas) TransformOffset() geometry.Point { return geometry.Point{} }
+func (c *stubCanvas) ClipBounds() geometry.Rect       { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- Construction Tests ---
 

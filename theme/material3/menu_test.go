@@ -201,6 +201,7 @@ func (c *menuMockCanvas) DrawRect(_ geometry.Rect, _ widget.Color) {
 	c.drawCount++
 	c.rectCount++
 }
+func (c *menuMockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)        {}
 func (c *menuMockCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *menuMockCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -213,6 +214,8 @@ func (c *menuMockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ floa
 func (c *menuMockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) { c.drawCount++ }
 func (c *menuMockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
+}
+func (c *menuMockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *menuMockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -233,3 +236,4 @@ func (c *menuMockCanvas) PopClip()                                     {}
 func (c *menuMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *menuMockCanvas) PopTransform()                                {}
 func (c *menuMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *menuMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }

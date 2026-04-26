@@ -961,6 +961,8 @@ func (c *internalRecordingCanvas) DrawRect(r geometry.Rect, color widget.Color) 
 	c.drawRects = append(c.drawRects, internalDrawRectCall{r: r, color: color})
 }
 
+func (c *internalRecordingCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
+
 func (c *internalRecordingCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32) {}
 
 func (c *internalRecordingCanvas) DrawRoundRect(r geometry.Rect, color widget.Color, radius float32) {
@@ -973,6 +975,8 @@ func (c *internalRecordingCanvas) StrokeRoundRect(r geometry.Rect, color widget.
 
 func (c *internalRecordingCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) {}
 func (c *internalRecordingCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
+}
+func (c *internalRecordingCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (c *internalRecordingCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {}
 
@@ -991,6 +995,9 @@ func (c *internalRecordingCanvas) PopClip()                                     
 func (c *internalRecordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalRecordingCanvas) PopTransform()                                {}
 func (c *internalRecordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *internalRecordingCanvas) ClipBounds() geometry.Rect {
+	return geometry.NewRect(0, 0, 10000, 10000)
+}
 
 // --- internalMockOverlayManager ---
 

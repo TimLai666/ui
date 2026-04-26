@@ -23,8 +23,9 @@ type mockCanvas struct {
 	transforms int
 }
 
-func (m *mockCanvas) Clear(_ widget.Color)                     {}
-func (m *mockCanvas) DrawRect(r geometry.Rect, _ widget.Color) { m.rects = append(m.rects, r) }
+func (m *mockCanvas) Clear(_ widget.Color)                           {}
+func (m *mockCanvas) DrawRect(r geometry.Rect, _ widget.Color)       { m.rects = append(m.rects, r) }
+func (m *mockCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color) {}
 func (m *mockCanvas) StrokeRect(r geometry.Rect, _ widget.Color, _ float32) {
 	m.rects = append(m.rects, r)
 }
@@ -33,6 +34,8 @@ func (m *mockCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _, _ float
 }
 func (m *mockCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color) {}
 func (m *mockCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
+}
+func (m *mockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
 }
 func (m *mockCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) { m.lines++ }
 func (m *mockCanvas) DrawText(text string, _ geometry.Rect, _ float32, _ widget.Color, _ bool, _ widget.TextAlign) {
@@ -49,6 +52,7 @@ func (m *mockCanvas) PopClip()                                     { m.clips-- }
 func (m *mockCanvas) PushTransform(_ geometry.Point)               { m.transforms++ }
 func (m *mockCanvas) PopTransform()                                { m.transforms-- }
 func (m *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (m *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // testColumns returns a standard set of test columns.
 func testColumns() []Column {
