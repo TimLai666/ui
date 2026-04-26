@@ -26,9 +26,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/gogpu/gg"
 	_ "github.com/gogpu/gg/gpu" // enable GPU SDF acceleration
-	"github.com/gogpu/gg/integration/ggcanvas"
+
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/ui/app"
 	"github.com/gogpu/ui/core/button"
@@ -49,9 +48,10 @@ import (
 	"github.com/gogpu/ui/core/textfield"
 	"github.com/gogpu/ui/core/toolbar"
 	"github.com/gogpu/ui/core/treeview"
+	"github.com/gogpu/ui/desktop"
 	"github.com/gogpu/ui/icon"
 	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/render"
+	"github.com/gogpu/ui/theme"
 	"github.com/gogpu/ui/theme/devtools"
 	"github.com/gogpu/ui/theme/material3"
 	"github.com/gogpu/ui/widget"
@@ -155,6 +155,8 @@ var themeNames = []string{
 }
 
 func main() {
+	m3 := material3.New(widget.Hex(0x6750A4))
+
 	gogpuApp := gogpu.NewApp(gogpu.DefaultConfig().
 		WithTitle("gogpu/ui -- Widget Gallery").
 		WithSize(900, 1000).
@@ -164,13 +166,15 @@ func main() {
 		app.WithWindowProvider(gogpuApp),
 		app.WithPlatformProvider(gogpuApp),
 		app.WithEventSource(gogpuApp.EventSource()),
+		app.WithTheme(m3.AsTheme()),
 	)
 
 	gs := &galleryState{}
-	ps := m3Painters(material3.New(widget.Hex(0x6750A4)))
+	ps := m3Painters(m3)
 	var onThemeChange func(int)
 	onThemeChange = func(idx int) {
 		ps = switchTheme(idx)
+		uiApp.SetTheme(switchUITheme(idx))
 		newRoot := buildGallery(gs, ps, onThemeChange)
 		uiApp.SetRoot(newRoot)
 		gogpuApp.RequestRedraw()
@@ -181,71 +185,7 @@ func main() {
 	// Start simulated data for charts and progress.
 	go runSimulatedData(gs, gogpuApp)
 
-	var canvas *ggcanvas.Canvas
-
-	gogpuApp.OnDraw(func(dc *gogpu.Context) {
-		w, h := dc.Width(), dc.Height()
-		if w <= 0 || h <= 0 {
-			return
-		}
-
-		if canvas == nil {
-			provider := gogpuApp.GPUContextProvider()
-			if provider == nil {
-				return
-			}
-			var err error
-			canvas, err = ggcanvas.New(provider, w, h)
-			if err != nil {
-				log.Printf("ggcanvas: %v", err)
-				return
-			}
-		}
-
-		uiApp.Frame()
-
-		cw, ch := canvas.Size()
-		if cw != w || ch != h {
-			if err := canvas.Resize(w, h); err != nil {
-				log.Printf("resize: %v", err)
-			}
-			cw, ch = w, h
-		}
-
-		sv := dc.SurfaceView()
-		sw, sh := dc.SurfaceSize()
-		gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
-
-		canvas.Draw(func(cc *gg.Context) {
-			// Background color depends on theme.
-			if ps.isDark {
-				cc.SetRGBA(0.12, 0.12, 0.13, 1)
-			} else {
-				cc.SetRGBA(0.96, 0.96, 0.96, 1)
-			}
-			cc.DrawRectangle(0, 0, float64(cw), float64(ch))
-			cc.Fill()
-
-			widgetCanvas := render.NewCanvas(cc, cw, ch)
-			uiApp.Window().DrawTo(widgetCanvas)
-		})
-
-		if gg.AcceleratorCanRenderDirect() {
-			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-				log.Printf("render: %v", err)
-			}
-		} else {
-			if err := canvas.Render(dc.RenderTarget()); err != nil {
-				log.Printf("render: %v", err)
-			}
-		}
-	})
-
-	gogpuApp.OnClose(func() {
-		gg.CloseAccelerator()
-	})
-
-	if err := gogpuApp.Run(); err != nil {
+	if err := desktop.Run(gogpuApp, uiApp); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -262,6 +202,22 @@ func switchTheme(idx int) painterSet {
 		return dtPainters(devtools.NewTheme())
 	default:
 		return m3Painters(material3.New(widget.Hex(0x6750A4)))
+	}
+}
+
+// switchUITheme returns the theme.Theme for the given theme index.
+// This keeps desktop.Run's background drawing in sync with the painter set.
+func switchUITheme(idx int) *theme.Theme {
+	m3Seeds := []uint32{0x6750A4, 0x0078D4, 0x2E7D32, 0xE65100}
+	switch {
+	case idx < len(m3Seeds):
+		return material3.New(widget.Hex(m3Seeds[idx])).AsTheme()
+	case idx == 4: //nolint:mnd // DevTools Dark
+		return devtools.NewDarkTheme().AsTheme()
+	case idx == 5: //nolint:mnd // DevTools Light
+		return devtools.NewTheme().AsTheme()
+	default:
+		return material3.New(widget.Hex(0x6750A4)).AsTheme()
 	}
 }
 

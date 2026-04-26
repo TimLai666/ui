@@ -1,40 +1,53 @@
-// Package transition provides widget enter/exit animations.
+// Package transition provides animated wrapper widgets that apply motion
+// effects to child widgets.
 //
-// Transition wraps a widget and plays an animation when the widget appears
-// (enters) or disappears (exits). Supported effect types include fade,
-// slide, and scale.
+// There are two levels of API: high-level convenience widgets ([Slide],
+// [Fade]) and the lower-level [Transition] wrapper with composable
+// [Effect] values.
 //
-// # Quick Start
+// # High-Level Widgets
+//
+// [Slide] and [Fade] are standalone widgets that wrap a child and animate
+// a single property. They implement [widget.Lifecycle] for auto-start on
+// mount and follow the same time-based animation pattern as the progress
+// spinner (elapsed time from [widget.Context.Now], easing functions).
+//
+//	slide := transition.NewSlide(myWidget,
+//	    transition.SlideFrom(transition.FromTop),
+//	    transition.SlideDuration(300 * time.Millisecond),
+//	    transition.SlideEasing(animation.EaseOutCubic),
+//	)
+//
+//	fade := transition.NewFade(myWidget,
+//	    transition.FadeDuration(200 * time.Millisecond),
+//	    transition.FadeEasing(animation.EaseInOutCubic),
+//	)
+//
+// # Low-Level Transition Wrapper
+//
+// [Transition] created via [Wrap] supports composable effects (fade, slide,
+// scale) for enter/exit animations. Use this when you need combined effects
+// or explicit Show/Hide lifecycle control.
 //
 //	wrapped := transition.Wrap(myWidget,
 //	    transition.EnterEffect(transition.FadeIn()),
-//	    transition.ExitEffect(transition.FadeOut()),
+//	    transition.ExitEffect(transition.SlideOut(transition.ToBottom)),
 //	    transition.Duration(300 * time.Millisecond),
 //	)
 //
-//	wrapped.Show()  // plays enter animation, then shows widget
+//	wrapped.Show()  // plays enter animation
 //	wrapped.Hide()  // plays exit animation, then hides widget
-//
-// # Effects
-//
-// Three built-in effect types are provided:
-//
-//   - Fade: animate opacity from 0 to 1 (enter) or 1 to 0 (exit)
-//   - Slide: translate the widget from/to a given direction
-//   - Scale: scale the widget from/to a smaller size with fade
-//
-// Effects can be combined by composing multiple property animations
-// within a single [Effect] value.
 //
 // # Canvas Requirements
 //
-// Fade effects require the canvas to implement [OpacityPusher]. If the
-// canvas does not support opacity, fade effects are silently skipped
-// (graceful degradation). Slide effects use [widget.Canvas.PushTransform].
-// Scale effects adjust the child widget bounds around the center point.
+// Fade effects work best when the canvas implements [OpacityPusher] for
+// true per-pixel opacity. Without it, [Fade] falls back to a background-
+// color overlay approach (drawing a semi-transparent rect over the child).
+// Slide effects use [widget.Canvas.PushTransform].
 //
 // # Retained Mode
 //
-// During animation, the transition widget calls [widget.WidgetBase.SetNeedsRedraw]
-// to request continuous redraws until the animation completes.
+// During animation, transition widgets call [widget.WidgetBase.SetNeedsRedraw]
+// and [widget.Context.InvalidateRect] to request continuous repainting
+// until the animation completes.
 package transition

@@ -14,119 +14,43 @@
 //
 // Rendering: event-driven (ContinuousRender=false).
 // 0% CPU when idle. Redraws only on user interaction (click, key, resize).
-//
-// Requirements:
-//   - gogpu v0.22.9+
-//   - gg v0.33.3+
 package main
 
 import (
 	"fmt"
 	"log"
 
-	"github.com/gogpu/gg"
 	_ "github.com/gogpu/gg/gpu" // enable GPU SDF acceleration
-	"github.com/gogpu/gg/integration/ggcanvas"
+
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/ui/app"
 	"github.com/gogpu/ui/core/button"
 	"github.com/gogpu/ui/core/checkbox"
 	"github.com/gogpu/ui/core/radio"
+	"github.com/gogpu/ui/desktop"
 	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/render"
 	"github.com/gogpu/ui/state"
+	"github.com/gogpu/ui/theme/material3"
 	"github.com/gogpu/ui/widget"
 )
 
 func main() {
-	// Create gogpu application with builder pattern.
+	m3 := material3.New(widget.Hex(0x6750A4))
+
 	gogpuApp := gogpu.NewApp(gogpu.DefaultConfig().
 		WithTitle("gogpu/ui — Signals Demo").
 		WithSize(800, 700).
-		WithContinuousRender(false)) // Event-driven: 0% CPU when idle
+		WithContinuousRender(false))
 
-	// Create UI application wired to gogpu providers.
 	uiApp := app.New(
 		app.WithWindowProvider(gogpuApp),
 		app.WithPlatformProvider(gogpuApp),
 		app.WithEventSource(gogpuApp.EventSource()),
+		app.WithTheme(m3.AsTheme()),
 	)
 	uiApp.SetRoot(buildUI())
 
-	// Canvas for 2D rendering (created lazily).
-	var canvas *ggcanvas.Canvas
-
-	gogpuApp.OnDraw(func(dc *gogpu.Context) {
-		w, h := dc.Width(), dc.Height()
-		if w <= 0 || h <= 0 {
-			return
-		}
-
-		// Lazy canvas initialization.
-		if canvas == nil {
-			provider := gogpuApp.GPUContextProvider()
-			if provider == nil {
-				return
-			}
-			var err error
-			canvas, err = ggcanvas.New(provider, w, h)
-			if err != nil {
-				log.Printf("ggcanvas: %v", err)
-				return
-			}
-		}
-
-		uiApp.Frame()
-
-		// Resize canvas to match window (handles resize inside draw frame).
-		cw, ch := canvas.Size()
-		if cw != w || ch != h {
-			if err := canvas.Resize(w, h); err != nil {
-				log.Printf("resize: %v", err)
-			}
-			cw, ch = w, h
-		}
-
-		// Surface is transient — draw every frame.
-		sv := dc.SurfaceView()
-		sw, sh := dc.SurfaceSize()
-
-		// Set surface target BEFORE drawing so all GPU operations
-		// (including mid-draw flushes) render to the surface.
-		gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
-
-		canvas.Draw(func(cc *gg.Context) {
-			// Background via GPU-accelerated filled rect.
-			cc.SetRGBA(0.94, 0.94, 0.94, 1) // #F0F0F0
-			cc.DrawRectangle(0, 0, float64(cw), float64(ch))
-			cc.Fill()
-
-			widgetCanvas := render.NewCanvas(cc, cw, ch)
-			uiApp.Window().DrawTo(widgetCanvas)
-		})
-
-		// Render: GPU-direct on real GPUs, universal path on llvmpipe/software.
-		if gg.AcceleratorCanRenderDirect() {
-			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-				log.Printf("render: %v", err)
-			}
-		} else {
-			if err := canvas.Render(dc.RenderTarget()); err != nil {
-				log.Printf("render: %v", err)
-			}
-		}
-	})
-
-	// GPU resources are automatically cleaned up on shutdown:
-	// - ggcanvas.Canvas auto-registers with App's ResourceTracker
-	// - App.Run() calls tracker.CloseAll() before Renderer.Destroy()
-	// - OnClose is still available for additional cleanup if needed
-	gogpuApp.OnClose(func() {
-		gg.CloseAccelerator()
-	})
-
-	// Run application.
-	if err := gogpuApp.Run(); err != nil {
+	if err := desktop.Run(gogpuApp, uiApp); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -24,16 +24,16 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/gogpu/gg"
 	_ "github.com/gogpu/gg/gpu" // enable GPU SDF acceleration
-	"github.com/gogpu/gg/integration/ggcanvas"
+
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/ui/app"
 	"github.com/gogpu/ui/core/collapsible"
 	"github.com/gogpu/ui/core/linechart"
 	"github.com/gogpu/ui/core/progressbar"
+	"github.com/gogpu/ui/desktop"
 	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/render"
+	"github.com/gogpu/ui/theme"
 	"github.com/gogpu/ui/widget"
 )
 
@@ -77,6 +77,10 @@ type simState struct {
 }
 
 func main() {
+	// Dark theme with Task Manager background color (#1E1E1E).
+	darkTheme := theme.DefaultDark()
+	darkTheme.Colors.Background = colorBackground
+
 	gogpuApp := gogpu.NewApp(gogpu.DefaultConfig().
 		WithTitle("gogpu/ui — Task Manager").
 		WithSize(700, 800).
@@ -86,6 +90,7 @@ func main() {
 		app.WithWindowProvider(gogpuApp),
 		app.WithPlatformProvider(gogpuApp),
 		app.WithEventSource(gogpuApp.EventSource()),
+		app.WithTheme(darkTheme),
 	)
 
 	sim := &simState{
@@ -104,68 +109,7 @@ func main() {
 	// Start simulated data producer in a background goroutine.
 	go runSimulation(sim, gogpuApp)
 
-	var canvas *ggcanvas.Canvas
-
-	gogpuApp.OnDraw(func(dc *gogpu.Context) {
-		w, h := dc.Width(), dc.Height()
-		if w <= 0 || h <= 0 {
-			return
-		}
-
-		if canvas == nil {
-			provider := gogpuApp.GPUContextProvider()
-			if provider == nil {
-				return
-			}
-			var err error
-			canvas, err = ggcanvas.New(provider, w, h)
-			if err != nil {
-				log.Printf("ggcanvas: %v", err)
-				return
-			}
-		}
-
-		uiApp.Frame()
-
-		cw, ch := canvas.Size()
-		if cw != w || ch != h {
-			if err := canvas.Resize(w, h); err != nil {
-				log.Printf("resize: %v", err)
-			}
-			cw, ch = w, h
-		}
-
-		sv := dc.SurfaceView()
-		sw, sh := dc.SurfaceSize()
-		gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
-
-		canvas.Draw(func(cc *gg.Context) {
-			// Dark background.
-			r, g, b, a := colorBackground.RGBA8()
-			cc.SetRGBA(float64(r)/255, float64(g)/255, float64(b)/255, float64(a)/255)
-			cc.DrawRectangle(0, 0, float64(cw), float64(ch))
-			cc.Fill()
-
-			widgetCanvas := render.NewCanvas(cc, cw, ch)
-			uiApp.Window().DrawTo(widgetCanvas)
-		})
-
-		if gg.AcceleratorCanRenderDirect() {
-			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-				log.Printf("render: %v", err)
-			}
-		} else {
-			if err := canvas.Render(dc.RenderTarget()); err != nil {
-				log.Printf("render: %v", err)
-			}
-		}
-	})
-
-	gogpuApp.OnClose(func() {
-		gg.CloseAccelerator()
-	})
-
-	if err := gogpuApp.Run(); err != nil {
+	if err := desktop.Run(gogpuApp, uiApp); err != nil {
 		log.Fatal(err)
 	}
 }

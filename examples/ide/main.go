@@ -14,9 +14,8 @@ package main
 import (
 	"log"
 
-	"github.com/gogpu/gg"
 	_ "github.com/gogpu/gg/gpu"
-	"github.com/gogpu/gg/integration/ggcanvas"
+
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gpucontext"
 	"github.com/gogpu/ui/app"
@@ -26,9 +25,9 @@ import (
 	"github.com/gogpu/ui/core/titlebar"
 	"github.com/gogpu/ui/core/toolbar"
 	"github.com/gogpu/ui/core/treeview"
+	"github.com/gogpu/ui/desktop"
 	"github.com/gogpu/ui/icon"
 	"github.com/gogpu/ui/primitives"
-	"github.com/gogpu/ui/render"
 	"github.com/gogpu/ui/theme/devtools"
 )
 
@@ -134,71 +133,13 @@ func main() {
 		app.WithWindowProvider(gogpuApp),
 		app.WithPlatformProvider(gogpuApp),
 		app.WithEventSource(gogpuApp.EventSource()),
+		app.WithTheme(dt.AsTheme()),
 	)
 	uiApp.SetRoot(root)
 
-	var hitTestRegistered bool
-	var canvas *ggcanvas.Canvas
+	registerHitTest(gogpuApp, tb)
 
-	gogpuApp.OnDraw(func(dc *gogpu.Context) {
-		if !hitTestRegistered {
-			hitTestRegistered = true
-			registerHitTest(gogpuApp, tb)
-		}
-
-		w, h := dc.Width(), dc.Height()
-		if w <= 0 || h <= 0 {
-			return
-		}
-
-		if canvas == nil {
-			provider := gogpuApp.GPUContextProvider()
-			if provider == nil {
-				return
-			}
-			var err error
-			canvas, err = ggcanvas.New(provider, w, h)
-			if err != nil {
-				log.Printf("ggcanvas: %v", err)
-				return
-			}
-		}
-
-		uiApp.Frame()
-
-		cw, ch := canvas.Size()
-		if cw != w || ch != h {
-			if err := canvas.Resize(w, h); err != nil {
-				log.Printf("resize: %v", err)
-			}
-			cw, ch = w, h
-		}
-
-		sv := dc.SurfaceView()
-		sw, sh := dc.SurfaceSize()
-		gg.SetAcceleratorSurfaceTarget(sv, sw, sh)
-
-		canvas.Draw(func(cc *gg.Context) {
-			widgetCanvas := render.NewCanvas(cc, cw, ch)
-			uiApp.Window().DrawTo(widgetCanvas)
-		})
-
-		if gg.AcceleratorCanRenderDirect() {
-			if err := canvas.RenderDirect(sv, sw, sh); err != nil {
-				log.Printf("render: %v", err)
-			}
-		} else {
-			if err := canvas.Render(dc.RenderTarget()); err != nil {
-				log.Printf("render: %v", err)
-			}
-		}
-	})
-
-	gogpuApp.OnClose(func() {
-		gg.CloseAccelerator()
-	})
-
-	if err := gogpuApp.Run(); err != nil {
+	if err := desktop.Run(gogpuApp, uiApp); err != nil {
 		log.Fatal(err)
 	}
 }
