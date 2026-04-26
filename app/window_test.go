@@ -1636,3 +1636,127 @@ func TestWindow_DirtyBoundaries_ClearAndReuse(t *testing.T) {
 		t.Errorf("expected 1 dirty boundary after clear+add, got %d", w.DirtyBoundaryCount())
 	}
 }
+
+// --- Boundary Damage Region Tests (ADR-007 Phase 3, Task 3d) ---
+
+func TestWindow_BoundaryDamageRegion_Empty(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	// No dirty boundaries → empty damage region.
+	r := w.BoundaryDamageRegion()
+	if !r.IsEmpty() {
+		t.Errorf("expected empty damage region, got %v", r)
+	}
+}
+
+func TestWindow_BoundaryDamageRegion_SingleBoundary(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb := &mockBoundaryWithBounds{
+		mockRepaintBoundary: mockRepaintBoundary{key: 1},
+		bounds:              geometry.NewRect(10, 20, 100, 50),
+	}
+	w.AddDirtyBoundary(rb.key, rb)
+
+	r := w.BoundaryDamageRegion()
+	if r.Min.X != 10 || r.Min.Y != 20 || r.Max.X != 110 || r.Max.Y != 70 {
+		t.Errorf("damage region = %v, want (10,20)-(110,70)", r)
+	}
+}
+
+func TestWindow_BoundaryDamageRegion_MultipleBoundaries(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb1 := &mockBoundaryWithBounds{
+		mockRepaintBoundary: mockRepaintBoundary{key: 1},
+		bounds:              geometry.NewRect(10, 10, 50, 50),
+	}
+	rb2 := &mockBoundaryWithBounds{
+		mockRepaintBoundary: mockRepaintBoundary{key: 2},
+		bounds:              geometry.NewRect(200, 150, 80, 60),
+	}
+	w.AddDirtyBoundary(rb1.key, rb1)
+	w.AddDirtyBoundary(rb2.key, rb2)
+
+	r := w.BoundaryDamageRegion()
+
+	// Union should cover both: min(10,10) to max(280,210).
+	if r.Min.X != 10 || r.Min.Y != 10 {
+		t.Errorf("damage region min = (%v,%v), want (10,10)", r.Min.X, r.Min.Y)
+	}
+	if r.Max.X != 280 || r.Max.Y != 210 {
+		t.Errorf("damage region max = (%v,%v), want (280,210)", r.Max.X, r.Max.Y)
+	}
+}
+
+func TestWindow_BoundaryDamageRegion_ScreenBoundsPreferred(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb := &mockBoundaryWithScreenBounds{
+		mockRepaintBoundary: mockRepaintBoundary{key: 1},
+		bounds:              geometry.NewRect(0, 0, 50, 50),
+		screenBounds:        geometry.NewRect(100, 200, 50, 50),
+	}
+	w.AddDirtyBoundary(rb.key, rb)
+
+	r := w.BoundaryDamageRegion()
+
+	// Should use ScreenBounds (100,200)-(150,250), not Bounds (0,0)-(50,50).
+	if r.Min.X != 100 || r.Min.Y != 200 {
+		t.Errorf("damage region min = (%v,%v), want (100,200)", r.Min.X, r.Min.Y)
+	}
+}
+
+func TestWindow_BoundaryDamageRegion_ClearedAfterPaint(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb := &mockBoundaryWithBounds{
+		mockRepaintBoundary: mockRepaintBoundary{key: 1},
+		bounds:              geometry.NewRect(10, 10, 50, 50),
+	}
+	w.AddDirtyBoundary(rb.key, rb)
+
+	r := w.BoundaryDamageRegion()
+	if r.IsEmpty() {
+		t.Fatal("pre-condition: damage region should not be empty")
+	}
+
+	w.PaintDirtyBoundaries()
+
+	r = w.BoundaryDamageRegion()
+	if !r.IsEmpty() {
+		t.Error("damage region should be empty after PaintDirtyBoundaries")
+	}
+}
+
+// --- mockBoundaryWithBounds implements RepaintBoundaryMarker + Bounds() ---
+
+type mockBoundaryWithBounds struct {
+	mockRepaintBoundary
+	bounds geometry.Rect
+}
+
+func (m *mockBoundaryWithBounds) Bounds() geometry.Rect {
+	return m.bounds
+}
+
+// --- mockBoundaryWithScreenBounds implements ScreenBounds + Bounds ---
+
+type mockBoundaryWithScreenBounds struct {
+	mockRepaintBoundary
+	bounds       geometry.Rect
+	screenBounds geometry.Rect
+}
+
+func (m *mockBoundaryWithScreenBounds) Bounds() geometry.Rect {
+	return m.bounds
+}
+
+func (m *mockBoundaryWithScreenBounds) ScreenBounds() geometry.Rect {
+	return m.screenBounds
+}

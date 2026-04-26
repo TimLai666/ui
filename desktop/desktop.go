@@ -173,14 +173,7 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 
 	rl.lastDirtyRect = image.Rectangle{}
 	if drawn {
-		if win.WasFullRepaint() {
-			rl.canvas.MarkDirty()
-		} else {
-			du := win.LastDirtyUnion()
-			dr := dirtyUnionToPixelRect(du)
-			rl.canvas.MarkDirtyRegion(dr)
-			rl.lastDirtyRect = dr
-		}
+		rl.markDirtyRegion(win)
 	}
 
 	rl.present(dc)
@@ -203,6 +196,34 @@ func (rl *renderLoop) initCanvas(w, h int) bool {
 	// triggers GlyphMaskEngine atlas.Clear(), breaking GPU text.
 	rl.canvas.Context().SetLCDLayout(gg.LCDLayoutRGB)
 	return true
+}
+
+// markDirtyRegion computes the dirty region for partial texture upload.
+//
+// ADR-007 Phase 3 (Task 3d): when the boundary damage region is tighter
+// than the widget-level dirty union, use it for more precise scissoring.
+// The boundary damage region covers only the screen bounds of changed
+// RepaintBoundary instances, which is often smaller than the union of
+// all dirty widgets.
+func (rl *renderLoop) markDirtyRegion(win *app.Window) {
+	if win.WasFullRepaint() {
+		rl.canvas.MarkDirty()
+		return
+	}
+
+	du := win.LastDirtyUnion()
+
+	// Use boundary damage region if it is tighter (smaller area).
+	bdr := win.BoundaryDamageRegion()
+	if !bdr.IsEmpty() && !du.IsEmpty() {
+		if bdr.Width()*bdr.Height() < du.Width()*du.Height() {
+			du = bdr
+		}
+	}
+
+	dr := dirtyUnionToPixelRect(du)
+	rl.canvas.MarkDirtyRegion(dr)
+	rl.lastDirtyRect = dr
 }
 
 // present implements the ADR-006 zero-readback single-pass compositor.

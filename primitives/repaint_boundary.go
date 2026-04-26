@@ -80,6 +80,33 @@ type RepaintBoundary struct {
 	// from clean to dirty. Used by the Window to collect dirty boundaries
 	// into its dirtyBoundaries set (ADR-007, Task 1e).
 	onBoundaryDirty func(rb *RepaintBoundary)
+
+	// --- RasterCache (ADR-007 Phase 3, Task 3a) ---
+
+	// rasterCacheCfg holds the heuristic parameters for stability tracking.
+	// Initialized to DefaultRasterCacheConfig in NewRepaintBoundary.
+	rasterCacheCfg RasterCacheConfig
+
+	// consecutiveHits tracks the number of consecutive cache hits since
+	// the last cache miss. Used by the raster cache heuristic to decide
+	// when to promote the boundary to stable status.
+	consecutiveHits int
+
+	// stable indicates that this boundary has been promoted by the raster
+	// cache heuristic. Stable boundaries rarely change and are candidates
+	// for GPU texture caching (future Phase 4).
+	stable bool
+
+	// totalPromotions counts cumulative promotions for diagnostics.
+	totalPromotions int
+
+	// totalDemotions counts cumulative demotions for diagnostics.
+	totalDemotions int
+
+	// lastSceneVersion tracks the scene version from the last Draw call.
+	// Used by the damage-aware compositor (Task 3d) to detect when a
+	// boundary's scene content has actually changed between frames.
+	lastSceneVersion uint64
 }
 
 // Option configures a [RepaintBoundary].
@@ -101,8 +128,9 @@ func WithDebugLabel(label string) Option {
 //   - [WithDebugLabel] — optional label for diagnostics
 func NewRepaintBoundary(child widget.Widget, opts ...Option) *RepaintBoundary {
 	rb := &RepaintBoundary{
-		child:    child,
-		cacheKey: nextCacheKey.Add(1),
+		child:          child,
+		cacheKey:       nextCacheKey.Add(1),
+		rasterCacheCfg: DefaultRasterCacheConfig(),
 	}
 	rb.SetVisible(true)
 	rb.SetEnabled(true)
@@ -159,6 +187,11 @@ func (rb *RepaintBoundary) MarkBoundaryDirty() {
 	}
 	rb.boundaryDirty = true
 
+	// Reset consecutive hits on dirty — the boundary is no longer in a
+	// consecutive-cache-hit streak. Demotion from stable happens in Draw
+	// (cache miss path) to keep MarkBoundaryDirty O(1).
+	rb.consecutiveHits = 0
+
 	if rb.onBoundaryDirty != nil {
 		rb.onBoundaryDirty(rb)
 	}
@@ -182,6 +215,112 @@ func (rb *RepaintBoundary) ClearBoundaryDirty() {
 // Used by the Window to collect dirty boundaries into its set.
 func (rb *RepaintBoundary) SetOnBoundaryDirty(fn func(rb *RepaintBoundary)) {
 	rb.onBoundaryDirty = fn
+}
+
+// --- RasterCache (ADR-007 Phase 3, Task 3a) ---
+
+// IsStable reports whether this boundary has been promoted to stable status
+// by the raster cache heuristic. Stable boundaries have had consecutive
+// cache hits >= the promotion threshold, with sufficient complexity and area.
+//
+// Stable boundaries are candidates for GPU texture caching (future Phase 4).
+// The compositor can use this to prioritize GPU texture allocation.
+func (rb *RepaintBoundary) IsStable() bool {
+	return rb.stable
+}
+
+// ConsecutiveHits returns the number of consecutive cache hits since the
+// last cache miss. Used for observability and testing.
+func (rb *RepaintBoundary) ConsecutiveHits() int {
+	return rb.consecutiveHits
+}
+
+// RasterCacheStats returns a snapshot of the raster cache state for this
+// boundary. Used for diagnostics, benchmarks, and compositor decisions.
+func (rb *RepaintBoundary) RasterCacheStats() RasterCacheStats {
+	var tagCount int
+	if rb.cachedScene != nil {
+		tagCount = len(rb.cachedScene.Encoding().Tags())
+	}
+
+	return RasterCacheStats{
+		ConsecutiveHits: rb.consecutiveHits,
+		IsStable:        rb.stable,
+		TagCount:        tagCount,
+		Area:            rb.cacheWidth * rb.cacheHeight,
+		TotalPromotions: rb.totalPromotions,
+		TotalDemotions:  rb.totalDemotions,
+	}
+}
+
+// evaluatePromotion checks whether this boundary qualifies for promotion
+// to stable status based on the raster cache heuristic.
+//
+// Criteria (Flutter raster_cache.cc pattern):
+//   - consecutiveHits >= PromotionThreshold
+//   - tag count > MinComplexity
+//   - pixel area >= MinArea
+func (rb *RepaintBoundary) evaluatePromotion(w, h int) {
+	if rb.stable {
+		return // Already promoted.
+	}
+
+	cfg := rb.rasterCacheCfg
+	if rb.consecutiveHits < cfg.PromotionThreshold {
+		return
+	}
+
+	area := w * h
+	if area < cfg.MinArea {
+		return
+	}
+
+	if rb.cachedScene == nil {
+		return
+	}
+	tagCount := len(rb.cachedScene.Encoding().Tags())
+	if tagCount < cfg.MinComplexity {
+		return
+	}
+
+	rb.stable = true
+	rb.totalPromotions++
+}
+
+// demoteIfStable resets stable status when the boundary is invalidated.
+// Called on cache miss (boundary dirty or first draw).
+func (rb *RepaintBoundary) demoteIfStable() {
+	if !rb.stable {
+		return
+	}
+	rb.stable = false
+	rb.totalDemotions++
+}
+
+// --- Damage-Aware Compositor (ADR-007 Phase 3, Task 3d) ---
+
+// SceneVersion returns a monotonic counter that increments each time the
+// boundary's scene cache is re-recorded. The compositor uses this to detect
+// when a boundary's content has actually changed between frames.
+//
+// When SceneVersion() == lastObservedVersion, the boundary's scene has not
+// changed and the compositor can skip re-compositing this region.
+func (rb *RepaintBoundary) SceneVersion() uint64 {
+	return rb.cacheVersion
+}
+
+// SceneChanged reports whether the boundary's scene has changed since the
+// given version. Used by the compositor to determine which boundaries
+// need re-compositing in the damage-aware pipeline (Task 3d).
+//
+// Usage:
+//
+//	if rb.SceneChanged(lastVersion) {
+//	    // Re-composite this boundary's region.
+//	    lastVersion = rb.SceneVersion()
+//	}
+func (rb *RepaintBoundary) SceneChanged(sinceVersion uint64) bool {
+	return rb.cacheVersion != sinceVersion
 }
 
 // --- widget.Widget interface ---
@@ -240,11 +379,17 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 	// Cache hit: boundary is clean and we have a cached scene.
 	if !rb.boundaryDirty && rb.cachedScene != nil {
 		rb.recordCacheHit(ctx)
+		rb.consecutiveHits++
+		rb.evaluatePromotion(w, h)
 		canvas.ReplayScene(rb.cachedScene)
 		return
 	}
 
-	// Cache miss: record child drawing into a scene.
+	// Cache miss: reset consecutive hits and demote if stable.
+	rb.demoteIfStable()
+	rb.consecutiveHits = 0
+
+	// Record child drawing into a scene.
 	if rb.cachedScene == nil {
 		rb.cachedScene = scene.NewScene()
 	}
@@ -259,6 +404,7 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 
 	rb.boundaryDirty = false
 	rb.cacheVersion++
+	rb.lastSceneVersion = rb.cacheVersion
 
 	// Replay the freshly recorded scene into the parent canvas.
 	canvas.ReplayScene(rb.cachedScene)
@@ -314,6 +460,10 @@ func (rb *RepaintBoundary) Unmount() {
 	rb.cacheHeight = 0
 	rb.cacheHits = 0
 	rb.boundaryDirty = false
+	// Reset raster cache state (Task 3a).
+	rb.consecutiveHits = 0
+	rb.stable = false
+	rb.lastSceneVersion = 0
 }
 
 // --- a11y.Accessible interface ---

@@ -1166,6 +1166,61 @@ func (w *Window) PaintDirtyBoundaries() {
 	w.ClearDirtyBoundaries()
 }
 
+// BoundaryDamageRegion computes the union of screen bounds of all dirty
+// RepaintBoundary instances. This provides a tighter damage region for
+// the compositor when only specific boundaries changed (ADR-007 Phase 3,
+// Task 3d).
+//
+// Returns a zero Rect when no boundaries are dirty.
+//
+// The compositor can use min(BoundaryDamageRegion, LastDirtyUnion) to
+// get the tightest possible damage region for scissored GPU present.
+func (w *Window) BoundaryDamageRegion() geometry.Rect {
+	if len(w.dirtyBoundaries) == 0 {
+		return geometry.Rect{}
+	}
+
+	var union geometry.Rect
+	first := true
+	for _, entry := range w.dirtyBoundaries {
+		bounds := boundaryScreenBounds(entry.boundary)
+		if bounds.IsEmpty() {
+			continue
+		}
+		if first {
+			union = bounds
+			first = false
+		} else {
+			union = union.Union(bounds)
+		}
+	}
+
+	return union
+}
+
+// boundaryScreenBounds extracts the screen bounds from a RepaintBoundaryMarker.
+// Uses ScreenBounds() if available (computed during Draw), falls back to Bounds().
+func boundaryScreenBounds(b widget.RepaintBoundaryMarker) geometry.Rect {
+	type screenBounder interface {
+		ScreenBounds() geometry.Rect
+	}
+	if sb, ok := b.(screenBounder); ok {
+		r := sb.ScreenBounds()
+		if !r.IsEmpty() {
+			return r
+		}
+	}
+
+	type bounder interface {
+		Bounds() geometry.Rect
+	}
+	if bb, ok := b.(bounder); ok {
+		return bb.Bounds()
+	}
+
+	return geometry.Rect{}
+}
+
 // HasDirtyBoundariesOrNeedsRedraw reports whether any rendering work is
 // needed: either dirty boundaries from upward propagation or full-frame
 // redraw flags (needsRedraw, needsFullRepaint).
