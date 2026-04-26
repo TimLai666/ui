@@ -1066,6 +1066,139 @@ func TestWidgetCache_RangeShiftCreatesBoundaries(t *testing.T) {
 	}
 }
 
+// --- markItemDirty tests (ADR-007 Task 1f) ---
+
+func TestMarkItemDirty_InRange(t *testing.T) {
+	var wc widgetCache
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
+		w := &mockWidget{}
+		w.SetVisible(true)
+		w.SetEnabled(true)
+		return w
+	}}
+
+	wc.update(0, 5, builder, -1, -1)
+
+	// Create a ListView with this cache.
+	lv := &Widget{
+		hoveredIndex: noHoveredIndex,
+	}
+	lv.SetVisible(true)
+	lv.SetEnabled(true)
+	lv.cache = wc
+
+	// Mark item 2 dirty.
+	lv.markItemDirty(2)
+
+	// The widget at index 2 should be marked dirty.
+	item := lv.cache.widgetAt(2)
+	if item == nil {
+		t.Fatal("item at index 2 should not be nil")
+	}
+	if base, ok := item.(interface{ NeedsRedraw() bool }); ok {
+		if !base.NeedsRedraw() {
+			t.Error("item at index 2 should need redraw")
+		}
+	}
+
+	// The boundary at index 2 should have its cache invalidated.
+	rb := lv.cache.boundaryAt(2)
+	if rb == nil {
+		t.Fatal("boundary at index 2 should not be nil")
+	}
+	if rb.CacheValid() {
+		t.Error("boundary cache should be invalidated")
+	}
+
+	// ListView itself should need redraw.
+	if !lv.NeedsRedraw() {
+		t.Error("ListView should be marked for redraw")
+	}
+}
+
+func TestMarkItemDirty_OutOfRange(t *testing.T) {
+	var wc widgetCache
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
+		w := &mockWidget{}
+		w.SetVisible(true)
+		return w
+	}}
+
+	wc.update(5, 10, builder, -1, -1)
+
+	lv := &Widget{
+		hoveredIndex: noHoveredIndex,
+	}
+	lv.SetVisible(true)
+	lv.cache = wc
+
+	// Index 2 is before the cached range [5, 10) — should not panic.
+	lv.markItemDirty(2)
+
+	// Index 15 is after the cached range — should not panic.
+	lv.markItemDirty(15)
+}
+
+func TestHoverChange_NoInvalidate(t *testing.T) {
+	var wc widgetCache
+	builder := cdk.FuncContent[ItemContext]{Fn: func(ctx ItemContext) widget.Widget {
+		w := &mockWidget{}
+		w.SetVisible(true)
+		w.SetEnabled(true)
+		return w
+	}}
+
+	wc.update(0, 5, builder, -1, -1)
+
+	lv := &Widget{
+		hoveredIndex: noHoveredIndex,
+	}
+	lv.SetVisible(true)
+	lv.SetEnabled(true)
+	lv.cache = wc
+
+	// Record initial cache valid state.
+	initialValid := lv.cache.valid
+
+	// Simulate hover change via the same logic as handleContentMouseMove.
+	old := lv.hoveredIndex
+	lv.hoveredIndex = 2
+	if old >= 0 {
+		lv.markItemDirty(old)
+	}
+	if lv.hoveredIndex >= 0 {
+		lv.markItemDirty(lv.hoveredIndex)
+	}
+
+	// The widget cache should NOT be invalidated (no cache.invalidate() call).
+	if lv.cache.valid != initialValid {
+		t.Error("hover change should NOT invalidate the widget cache")
+	}
+
+	// Only the affected items should be dirty, not all.
+	for i := 0; i < 5; i++ {
+		item := lv.cache.widgetAt(i)
+		if item == nil {
+			continue
+		}
+		base, ok := item.(interface{ NeedsRedraw() bool })
+		if !ok {
+			continue
+		}
+		if i == 2 {
+			if !base.NeedsRedraw() {
+				t.Errorf("item %d should be dirty (new hovered)", i)
+			}
+		} else {
+			// Other items should NOT be dirty (hover didn't touch them).
+			// Note: old hovered was -1, so only new hovered (2) is dirty.
+			if base.NeedsRedraw() {
+				t.Errorf("item %d should NOT be dirty (only hover target changes)", i)
+			}
+		}
+	}
+}
+
 // --- SelectionMode tests ---
 
 func TestSelectionMode_String(t *testing.T) {

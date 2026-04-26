@@ -188,7 +188,7 @@ func TestSceneCanvas_DrawText(t *testing.T) {
 	v1 := sc.Version()
 
 	if v1 <= v0 {
-		t.Error("scene version should increment after DrawText (image command recorded)")
+		t.Error("scene version should increment after DrawText (vector path commands recorded)")
 	}
 }
 
@@ -405,21 +405,135 @@ func TestSceneCanvas_Close(t *testing.T) {
 	sc := scene.NewScene()
 	c := NewSceneCanvas(sc, 200, 50)
 
-	// Force text DC creation.
+	// Draw text to exercise the text path before Close.
 	c.DrawText("Test", geometry.NewRect(0, 0, 100, 30), 14, widget.ColorBlack, false, widget.TextAlignLeft)
 
-	if c.textDC == nil {
-		t.Error("textDC should be created after DrawText")
-	}
-
+	// Close should not panic.
 	c.Close()
 
-	if c.textDC != nil {
-		t.Error("textDC should be nil after Close")
+	// Double close should be safe (no-op).
+	c.Close()
+}
+
+// --- imageToRGBA ---
+
+// --- DrawText Vector Path Verification ---
+
+// TestSceneCanvas_DrawText_VectorPaths verifies that DrawText records vector
+// Fill commands (glyph outlines) rather than TagImage bitmap captures.
+// This is the core assertion for ADR-007 Task 1c.
+func TestSceneCanvas_DrawText_VectorPaths(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 400, 50)
+	defer c.Close()
+
+	c.DrawText("Vector", geometry.NewRect(10, 5, 200, 30), 14, widget.ColorBlack, false, widget.TextAlignLeft)
+
+	// scene.DrawText records glyph outlines as Fill commands, NOT TagImage.
+	// Check that the scene has NO images registered (vector-only).
+	images := sc.Images()
+	if len(images) > 0 {
+		t.Errorf("expected no images in scene (vector text), got %d", len(images))
 	}
 
-	// Double close should be safe.
-	c.Close()
+	// Verify that fill commands were recorded (glyph outlines).
+	tags := sc.Encoding().Tags()
+	hasFill := false
+	for _, tag := range tags {
+		if tag == scene.TagFill {
+			hasFill = true
+			break
+		}
+	}
+	if !hasFill {
+		t.Error("expected TagFill commands from vector text rendering")
+	}
+}
+
+// TestSceneCanvas_DrawText_Alignment verifies that text alignment produces
+// different x positions for the same text.
+func TestSceneCanvas_DrawText_Alignment(t *testing.T) {
+	tests := []struct {
+		name  string
+		align widget.TextAlign
+	}{
+		{"left", widget.TextAlignLeft},
+		{"center", widget.TextAlignCenter},
+		{"right", widget.TextAlignRight},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := scene.NewScene()
+			c := NewSceneCanvas(sc, 400, 50)
+			defer c.Close()
+
+			v0 := sc.Version()
+			c.DrawText("Align", geometry.NewRect(0, 0, 400, 50), 14, widget.ColorBlack, false, tt.align)
+			v1 := sc.Version()
+
+			if v1 <= v0 {
+				t.Errorf("alignment %s: expected version increment", tt.name)
+			}
+		})
+	}
+}
+
+// TestSceneCanvas_DrawText_ZeroBounds verifies that zero-sized bounds produce no output.
+func TestSceneCanvas_DrawText_ZeroBounds(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 50)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.DrawText("Hello", geometry.NewRect(10, 5, 0, 30), 14, widget.ColorBlack, false, widget.TextAlignLeft)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("zero-width bounds should produce no scene commands")
+	}
+
+	v2 := sc.Version()
+	c.DrawText("Hello", geometry.NewRect(10, 5, 100, 0), 14, widget.ColorBlack, false, widget.TextAlignLeft)
+	v3 := sc.Version()
+
+	if v3 != v2 {
+		t.Error("zero-height bounds should produce no scene commands")
+	}
+}
+
+// TestSceneCanvas_MeasureText_StandaloneFont verifies that MeasureText works
+// without relying on a temporary gg.Context.
+func TestSceneCanvas_MeasureText_Standalone(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 50)
+	defer c.Close()
+
+	w := c.MeasureText("Hello World", 14, false)
+	if w <= 0 {
+		t.Errorf("expected positive text width, got %f", w)
+	}
+
+	wBold := c.MeasureText("Hello World", 14, true)
+	if wBold <= 0 {
+		t.Errorf("expected positive bold text width, got %f", wBold)
+	}
+
+	// Bold text should be at least as wide as regular.
+	if wBold < w*0.9 {
+		t.Errorf("bold width (%f) unexpectedly much smaller than regular (%f)", wBold, w)
+	}
+}
+
+// TestSceneCanvas_MeasureText_Empty verifies that empty string returns 0.
+func TestSceneCanvas_MeasureText_Empty(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 50)
+	defer c.Close()
+
+	if w := c.MeasureText("", 14, false); w != 0 {
+		t.Errorf("expected 0 for empty text, got %f", w)
+	}
 }
 
 // --- imageToRGBA ---

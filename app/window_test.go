@@ -1541,3 +1541,96 @@ func TestWindow_AnimPumper_NotStartedWithoutWindowProvider(t *testing.T) {
 		t.Error("animToken should be nil in headless mode (no WindowProvider)")
 	}
 }
+
+// --- Dirty Boundaries Tests (ADR-007 Task 1e) ---
+
+// mockRepaintBoundary implements widget.RepaintBoundaryMarker for testing.
+type mockRepaintBoundary struct {
+	key        uint64
+	dirtyCount int
+}
+
+func (m *mockRepaintBoundary) MarkBoundaryDirty() {
+	m.dirtyCount++
+}
+
+func TestWindow_DirtyBoundaries_Initial(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	if w.HasDirtyBoundaries() {
+		t.Error("new window should have no dirty boundaries")
+	}
+	if w.DirtyBoundaryCount() != 0 {
+		t.Errorf("expected 0 dirty boundaries, got %d", w.DirtyBoundaryCount())
+	}
+}
+
+func TestWindow_DirtyBoundaries_AddAndCount(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb1 := &mockRepaintBoundary{key: 1}
+	rb2 := &mockRepaintBoundary{key: 2}
+
+	w.AddDirtyBoundary(rb1.key, rb1)
+	w.AddDirtyBoundary(rb2.key, rb2)
+
+	if !w.HasDirtyBoundaries() {
+		t.Error("should have dirty boundaries after Add")
+	}
+	if w.DirtyBoundaryCount() != 2 {
+		t.Errorf("expected 2 dirty boundaries, got %d", w.DirtyBoundaryCount())
+	}
+}
+
+func TestWindow_DirtyBoundaries_Deduplication(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb := &mockRepaintBoundary{key: 42}
+
+	w.AddDirtyBoundary(rb.key, rb)
+	w.AddDirtyBoundary(rb.key, rb) // Same key — should deduplicate.
+
+	if w.DirtyBoundaryCount() != 1 {
+		t.Errorf("expected 1 dirty boundary (deduplicated), got %d", w.DirtyBoundaryCount())
+	}
+}
+
+func TestWindow_DirtyBoundaries_Clear(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb1 := &mockRepaintBoundary{key: 1}
+	rb2 := &mockRepaintBoundary{key: 2}
+
+	w.AddDirtyBoundary(rb1.key, rb1)
+	w.AddDirtyBoundary(rb2.key, rb2)
+
+	w.ClearDirtyBoundaries()
+
+	if w.HasDirtyBoundaries() {
+		t.Error("should have no dirty boundaries after Clear")
+	}
+	if w.DirtyBoundaryCount() != 0 {
+		t.Errorf("expected 0 dirty boundaries after Clear, got %d", w.DirtyBoundaryCount())
+	}
+}
+
+func TestWindow_DirtyBoundaries_ClearAndReuse(t *testing.T) {
+	a := New()
+	w := a.Window()
+
+	rb := &mockRepaintBoundary{key: 1}
+	w.AddDirtyBoundary(rb.key, rb)
+	w.ClearDirtyBoundaries()
+
+	// After clear, adding again should work.
+	rb2 := &mockRepaintBoundary{key: 2}
+	w.AddDirtyBoundary(rb2.key, rb2)
+
+	if w.DirtyBoundaryCount() != 1 {
+		t.Errorf("expected 1 dirty boundary after clear+add, got %d", w.DirtyBoundaryCount())
+	}
+}

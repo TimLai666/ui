@@ -97,6 +97,21 @@ type Widget interface {
 	Children() []Widget
 }
 
+// RepaintBoundaryMarker is an optional interface implemented by widgets that
+// act as repaint boundaries in the widget tree (ADR-007).
+//
+// During upward dirty propagation ([WidgetBase.SetNeedsRedraw]), the parent
+// chain is walked until a widget implementing this interface is found. The
+// boundary is then marked dirty, and propagation stops.
+//
+// This is the Flutter markNeedsPaint pattern: dirty flags propagate UP to the
+// nearest RepaintBoundary instead of DOWN through the entire tree.
+type RepaintBoundaryMarker interface {
+	// MarkBoundaryDirty marks this repaint boundary as needing re-rendering.
+	// Called by the upward dirty propagation in [WidgetBase.SetNeedsRedraw].
+	MarkBoundaryDirty()
+}
+
 // LayoutFunc is a function type for custom layout logic.
 //
 // This can be used to implement layout behavior without creating

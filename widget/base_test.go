@@ -694,3 +694,177 @@ func BenchmarkWidgetBase_ContainsPoint(b *testing.B) {
 		_ = w.ContainsPoint(point)
 	}
 }
+
+// --- Upward Dirty Propagation Tests (ADR-007 Task 1d) ---
+
+// mockBoundary is a mock RepaintBoundary for testing upward dirty propagation.
+type mockBoundary struct {
+	WidgetBase
+	dirtyCount int
+}
+
+func (m *mockBoundary) Layout(_ Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(200, 200))
+}
+
+func (m *mockBoundary) Draw(_ Context, _ Canvas) {}
+
+func (m *mockBoundary) Event(_ Context, _ event.Event) bool { return false }
+
+func (m *mockBoundary) MarkBoundaryDirty() {
+	m.dirtyCount++
+}
+
+// Verify mockBoundary implements RepaintBoundaryMarker.
+var _ RepaintBoundaryMarker = (*mockBoundary)(nil)
+
+func newMockBoundary() *mockBoundary {
+	b := &mockBoundary{}
+	b.SetVisible(true)
+	b.SetEnabled(true)
+	return b
+}
+
+// TestSetNeedsRedraw_UpwardPropagation verifies that SetNeedsRedraw(true)
+// on a deep widget propagates UP to the nearest RepaintBoundary.
+func TestSetNeedsRedraw_UpwardPropagation(t *testing.T) {
+	// Tree: boundary -> parent -> child
+	boundary := newMockBoundary()
+	parent := newMockWidget()
+	child := newMockWidget()
+
+	parent.SetParent(boundary)
+	child.SetParent(parent)
+
+	// Set dirty on the leaf.
+	child.SetNeedsRedraw(true)
+
+	if boundary.dirtyCount != 1 {
+		t.Errorf("expected boundary MarkBoundaryDirty called once, got %d", boundary.dirtyCount)
+	}
+
+	// Intermediate parent should also be marked dirty locally.
+	if !parent.NeedsRedraw() {
+		t.Error("intermediate parent should be marked dirty during upward propagation")
+	}
+}
+
+// TestSetNeedsRedraw_O1Guard verifies that setting dirty twice does NOT
+// cause double propagation (O(1) guard).
+func TestSetNeedsRedraw_O1Guard(t *testing.T) {
+	boundary := newMockBoundary()
+	child := newMockWidget()
+	child.SetParent(boundary)
+
+	// First set: triggers propagation.
+	child.SetNeedsRedraw(true)
+	if boundary.dirtyCount != 1 {
+		t.Fatalf("expected 1 propagation, got %d", boundary.dirtyCount)
+	}
+
+	// Second set: should NOT propagate again (already dirty).
+	child.SetNeedsRedraw(true)
+	if boundary.dirtyCount != 1 {
+		t.Errorf("expected no additional propagation (O(1) guard), got %d", boundary.dirtyCount)
+	}
+}
+
+// TestSetNeedsRedraw_ClearAndRepropagate verifies that after clearing the
+// dirty flag, a subsequent SetNeedsRedraw(true) propagates again.
+func TestSetNeedsRedraw_ClearAndRepropagate(t *testing.T) {
+	boundary := newMockBoundary()
+	child := newMockWidget()
+	child.SetParent(boundary)
+
+	child.SetNeedsRedraw(true)
+	if boundary.dirtyCount != 1 {
+		t.Fatalf("expected 1 propagation, got %d", boundary.dirtyCount)
+	}
+
+	// Clear the flag (simulating draw pass).
+	child.ClearRedraw()
+
+	// Set dirty again — should propagate.
+	child.SetNeedsRedraw(true)
+	if boundary.dirtyCount != 2 {
+		t.Errorf("expected 2 total propagations after clear+set, got %d", boundary.dirtyCount)
+	}
+}
+
+// TestSetNeedsRedraw_NoParent verifies that SetNeedsRedraw works without
+// parent chain (no panic, no propagation).
+func TestSetNeedsRedraw_NoParent(t *testing.T) {
+	child := newMockWidget()
+
+	// Should not panic without parent.
+	child.SetNeedsRedraw(true)
+
+	if !child.NeedsRedraw() {
+		t.Error("widget should be marked dirty even without parent")
+	}
+}
+
+// TestSetNeedsRedraw_SetFalseNoPropagation verifies that
+// SetNeedsRedraw(false) does NOT propagate upward.
+func TestSetNeedsRedraw_SetFalseNoPropagation(t *testing.T) {
+	boundary := newMockBoundary()
+	child := newMockWidget()
+	child.SetParent(boundary)
+
+	// Clear dirty — should not propagate.
+	child.SetNeedsRedraw(false)
+
+	if boundary.dirtyCount != 0 {
+		t.Errorf("SetNeedsRedraw(false) should not propagate, got %d calls", boundary.dirtyCount)
+	}
+}
+
+// TestSetNeedsRedraw_DeepTree verifies propagation through a deep tree with
+// multiple intermediate widgets and a boundary in the middle.
+func TestSetNeedsRedraw_DeepTree(t *testing.T) {
+	// Tree: root -> boundary -> mid1 -> mid2 -> leaf
+	root := newMockWidget()
+	boundary := newMockBoundary()
+	mid1 := newMockWidget()
+	mid2 := newMockWidget()
+	leaf := newMockWidget()
+
+	boundary.SetParent(root)
+	mid1.SetParent(boundary)
+	mid2.SetParent(mid1)
+	leaf.SetParent(mid2)
+
+	leaf.SetNeedsRedraw(true)
+
+	// Boundary should be notified.
+	if boundary.dirtyCount != 1 {
+		t.Errorf("boundary should receive dirty notification, got %d", boundary.dirtyCount)
+	}
+
+	// Mid widgets between leaf and boundary should be dirty.
+	if !mid1.NeedsRedraw() {
+		t.Error("mid1 should be dirty")
+	}
+	if !mid2.NeedsRedraw() {
+		t.Error("mid2 should be dirty")
+	}
+
+	// Root (above boundary) should NOT be dirty — propagation stops at boundary.
+	if root.NeedsRedraw() {
+		t.Error("root should NOT be dirty — propagation stops at RepaintBoundary")
+	}
+}
+
+// TestSetNeedsRedraw_NoBoundary verifies propagation when there is no
+// RepaintBoundary in the parent chain. All ancestors should be marked dirty.
+func TestSetNeedsRedraw_NoBoundary(t *testing.T) {
+	root := newMockWidget()
+	child := newMockWidget()
+	child.SetParent(root)
+
+	child.SetNeedsRedraw(true)
+
+	if !root.NeedsRedraw() {
+		t.Error("root should be dirty when no RepaintBoundary exists")
+	}
+}

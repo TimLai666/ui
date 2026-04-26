@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/scene"
+	"github.com/gogpu/gg/text"
 	"github.com/gogpu/ui/geometry"
 	"github.com/gogpu/ui/widget"
 )
@@ -16,9 +17,9 @@ import (
 // rendering of widget subtrees.
 //
 // Shape drawing (rect, round rect, circle, line) is recorded directly into
-// the scene's encoding as scene shapes. Text rendering is delegated to a
-// temporary gg.Context to preserve MSDF text quality, then captured as an
-// image and drawn into the scene.
+// the scene's encoding as scene shapes. Text rendering uses
+// scene.DrawText which converts glyph outlines to vector Fill paths —
+// scalable and resolution-independent. No bitmap capture needed.
 //
 // SceneCanvas is NOT thread-safe. All drawing operations must occur on the
 // main/UI thread during the Draw phase.
@@ -26,9 +27,6 @@ type SceneCanvas struct {
 	sc     *scene.Scene
 	width  int
 	height int
-
-	// Text rendering: delegate to gg.Context (preserves MSDF quality).
-	textDC *gg.Context
 
 	// Clip stack: stores previous clip bounds for each PushClip.
 	clipStack []geometry.Rect
@@ -57,12 +55,10 @@ func NewSceneCanvas(sc *scene.Scene, width, height int) *SceneCanvas {
 }
 
 // Close releases resources held by the SceneCanvas.
-// Must be called after drawing is complete to free the temporary text context.
+// Currently a no-op since vector text rendering does not hold persistent
+// resources, but retained for lifecycle symmetry with NewSceneCanvas.
 func (c *SceneCanvas) Close() {
-	if c.textDC != nil {
-		_ = c.textDC.Close()
-		c.textDC = nil
-	}
+	// No resources to release — vector text uses no persistent state.
 }
 
 // Scene returns the underlying scene.Scene.
@@ -291,9 +287,14 @@ func (c *SceneCanvas) DrawLine(from, to geometry.Point, color widget.Color, stro
 	c.sc.Stroke(style, scene.IdentityAffine(), brush, shape)
 }
 
-// DrawText draws text within the given bounding rectangle.
-// Text is rendered via gg.Context (MSDF pipeline) and captured as an image
-// to preserve high-quality text rendering.
+// DrawText draws text within the given bounding rectangle using vector paths.
+//
+// Text is rendered via scene.DrawText which converts glyph outlines to vector
+// Fill paths in the scene — scalable, resolution-independent, and enterprise-
+// quality. No bitmap capture or temporary gg.Context needed.
+//
+// Alignment is handled by measuring the text advance and computing the x offset
+// before calling scene.DrawText with the final position.
 func (c *SceneCanvas) DrawText(s string, bounds geometry.Rect, fontSize float32, color widget.Color, bold bool, align widget.TextAlign) {
 	if s == "" {
 		return
@@ -304,22 +305,11 @@ func (c *SceneCanvas) DrawText(s string, bounds geometry.Rect, fontSize float32,
 		return
 	}
 
-	w := int(math.Ceil(float64(bounds.Width())))
-	h := int(math.Ceil(float64(bounds.Height())))
-	if w <= 0 || h <= 0 {
+	if bounds.Width() <= 0 || bounds.Height() <= 0 {
 		return
 	}
 
-	// Create or resize the text gg.Context.
-	if c.textDC == nil || c.textDC.Width() != w || c.textDC.Height() != h {
-		if c.textDC != nil {
-			_ = c.textDC.Close()
-		}
-		c.textDC = gg.NewContext(w, h)
-	}
-	c.textDC.ClearWithColor(gg.Transparent)
-
-	// Render text using gg's MSDF pipeline (same logic as Canvas.DrawText).
+	// Resolve font face.
 	ensureDefaultFonts()
 	source := defaultRegular
 	if bold {
@@ -330,53 +320,46 @@ func (c *SceneCanvas) DrawText(s string, bounds geometry.Rect, fontSize float32,
 	}
 
 	face := source.Face(float64(fontSize))
-	c.textDC.SetFont(face)
-	c.textDC.SetRGBA(float64(color.R), float64(color.G), float64(color.B), float64(color.A))
 
+	// Calculate baseline Y by centering text vertically within bounds.
+	// Same logic as Canvas.DrawText (canvas.go) for visual consistency.
 	metrics := face.Metrics()
 	textHeight := metrics.Ascent + metrics.Descent
-	baselineY := math.Round((float64(h)-textHeight)/2 + metrics.Ascent)
+	baselineY := math.Round(float64(bounds.Min.Y) + (float64(bounds.Height())-textHeight)/2 + metrics.Ascent)
 
-	tw, _ := c.textDC.MeasureString(s)
-	x := 0.0
-	if tw < float64(w) {
-		x = (float64(w) - tw) * align.Float64()
+	// Calculate x position based on alignment using text.Measure for
+	// standalone measurement (no gg.Context needed).
+	tw, _ := text.Measure(s, face)
+	available := float64(bounds.Width())
+	x := float64(bounds.Min.X)
+	if tw < available {
+		x += (available - tw) * align.Float64()
 	}
 	x = math.Round(x)
 
-	c.textDC.DrawString(s, x, baselineY)
-
-	// Capture pixels and add to scene as image.
-	img := c.textDC.Image()
-	rgba := imageToRGBA(img)
-	scImg := scene.NewImage(w, h)
-	scImg.Data = rgba.Pix
-	c.sc.DrawImage(scImg, scene.TranslateAffine(bounds.Min.X, bounds.Min.Y))
+	// Record text as vector glyph outlines into the scene.
+	brush := scene.SolidBrush(ToGGColor(color))
+	_ = c.sc.DrawText(s, face, float32(x), float32(baselineY), brush)
 }
 
 // MeasureText returns the width in pixels of the given text string
 // when rendered at the specified font size and weight.
-// SceneCanvas approximates using average character width since the text
-// rendering context may not be initialized.
+//
+// Uses text.Measure from the gg text package for accurate, standalone
+// measurement — no gg.Context required.
 func (c *SceneCanvas) MeasureText(s string, fontSize float32, bold bool) float32 {
 	if s == "" {
 		return 0
 	}
 
-	// Try to use the gg text context for accurate measurement.
 	ensureDefaultFonts()
 	source := defaultRegular
 	if bold {
 		source = defaultBold
 	}
 	if source != nil {
-		// Lazily create a small text context for measurement.
-		if c.textDC == nil {
-			c.textDC = gg.NewContext(1, 1)
-		}
 		face := source.Face(float64(fontSize))
-		c.textDC.SetFont(face)
-		w, _ := c.textDC.MeasureString(s)
+		w, _ := text.Measure(s, face)
 		return float32(w)
 	}
 

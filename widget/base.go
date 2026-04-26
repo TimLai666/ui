@@ -441,14 +441,68 @@ func (w *WidgetBase) NeedsRedraw() bool {
 
 // SetNeedsRedraw marks the widget as needing re-rendering.
 //
+// When v is true, this also propagates the dirty flag upward through the
+// parent chain to the nearest RepaintBoundary (ADR-007 upward dirty
+// propagation). This is O(depth) rather than the O(n) downward tree walk
+// of [NeedsRedrawInTree]. If the widget is already marked dirty, the
+// upward propagation is skipped (O(1) guard).
+//
+// When v is false, only the local flag is cleared (no propagation needed).
+//
 // This is called by the signal scheduler's flush callback when a widget's
 // bound signal has changed. Unlike the scheduler's pending set (which is
 // cleared on flush), this flag persists until the draw pass clears it
 // via [WidgetBase.ClearRedraw].
 func (w *WidgetBase) SetNeedsRedraw(v bool) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
+	alreadyDirty := w.needsRedraw
 	w.needsRedraw = v
+	parent := w.parent
+	w.mu.Unlock()
+
+	// Propagate upward only when setting dirty, and only if not already dirty
+	// (O(1) guard prevents redundant walks).
+	if v && !alreadyDirty {
+		propagateDirtyUpward(parent)
+	}
+}
+
+// propagateDirtyUpward walks the parent chain from the given widget upward,
+// marking each ancestor as dirty until a RepaintBoundary is found. When a
+// RepaintBoundary is reached, it is marked dirty and propagation stops —
+// this is the Flutter markNeedsPaint pattern (ADR-007).
+//
+// If no RepaintBoundary is found, propagation reaches the root (which is
+// correct — the root boundary encompasses the entire window).
+func propagateDirtyUpward(w Widget) {
+	for w != nil {
+		// If this ancestor is a RepaintBoundary, mark it dirty and stop.
+		if rb, ok := w.(RepaintBoundaryMarker); ok {
+			rb.MarkBoundaryDirty()
+			return
+		}
+
+		// Mark this ancestor widget as needing redraw (without re-propagating).
+		if setter, ok := w.(interface{ markDirtyLocal() }); ok {
+			setter.markDirtyLocal()
+		}
+
+		// Walk to next parent.
+		if pg, ok := w.(interface{ Parent() Widget }); ok {
+			w = pg.Parent()
+		} else {
+			return
+		}
+	}
+}
+
+// markDirtyLocal sets the needsRedraw flag without triggering upward
+// propagation. Used internally during upward dirty walks to avoid
+// infinite recursion.
+func (w *WidgetBase) markDirtyLocal() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.needsRedraw = true
 }
 
 // ClearRedraw clears the widget's needsRedraw flag after a successful draw.

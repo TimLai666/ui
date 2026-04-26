@@ -1171,3 +1171,95 @@ func TestRepaintBoundary_Draw_FastPath_GPUTexture_FallsBackToCPU(t *testing.T) {
 		t.Errorf("CacheHits = %d, want 1", rb.CacheHits())
 	}
 }
+
+// --- MarkBoundaryDirty Tests (ADR-007 Task 1d) ---
+
+func TestRepaintBoundary_MarkBoundaryDirty(t *testing.T) {
+	child := newDrawCountingWidget()
+	rb := primitives.NewRepaintBoundary(child)
+
+	if rb.IsBoundaryDirty() {
+		t.Error("new RepaintBoundary should not be dirty")
+	}
+
+	rb.MarkBoundaryDirty()
+
+	if !rb.IsBoundaryDirty() {
+		t.Error("should be dirty after MarkBoundaryDirty")
+	}
+	if rb.CacheValid() {
+		t.Error("cache should be invalidated after MarkBoundaryDirty")
+	}
+}
+
+func TestRepaintBoundary_MarkBoundaryDirty_O1Guard(t *testing.T) {
+	child := newDrawCountingWidget()
+	rb := primitives.NewRepaintBoundary(child)
+
+	callCount := 0
+	rb.SetOnBoundaryDirty(func(_ *primitives.RepaintBoundary) {
+		callCount++
+	})
+
+	rb.MarkBoundaryDirty()
+	rb.MarkBoundaryDirty() // Second call — should be O(1) no-op.
+
+	if callCount != 1 {
+		t.Errorf("onBoundaryDirty should be called once (O(1) guard), got %d", callCount)
+	}
+}
+
+func TestRepaintBoundary_ClearBoundaryDirty(t *testing.T) {
+	child := newDrawCountingWidget()
+	rb := primitives.NewRepaintBoundary(child)
+
+	rb.MarkBoundaryDirty()
+	rb.ClearBoundaryDirty()
+
+	if rb.IsBoundaryDirty() {
+		t.Error("should not be dirty after ClearBoundaryDirty")
+	}
+}
+
+func TestRepaintBoundary_OnBoundaryDirtyCallback(t *testing.T) {
+	child := newDrawCountingWidget()
+	rb := primitives.NewRepaintBoundary(child)
+
+	var notifiedRB *primitives.RepaintBoundary
+	rb.SetOnBoundaryDirty(func(r *primitives.RepaintBoundary) {
+		notifiedRB = r
+	})
+
+	rb.MarkBoundaryDirty()
+
+	if notifiedRB != rb {
+		t.Error("callback should receive the RepaintBoundary that was marked dirty")
+	}
+}
+
+func TestRepaintBoundary_MarkClearRemark(t *testing.T) {
+	child := newDrawCountingWidget()
+	rb := primitives.NewRepaintBoundary(child)
+
+	callCount := 0
+	rb.SetOnBoundaryDirty(func(_ *primitives.RepaintBoundary) {
+		callCount++
+	})
+
+	rb.MarkBoundaryDirty()
+	rb.ClearBoundaryDirty()
+	rb.MarkBoundaryDirty() // Should fire callback again after clear.
+
+	if callCount != 2 {
+		t.Errorf("callback should fire on each clean→dirty transition, got %d", callCount)
+	}
+}
+
+// TestRepaintBoundary_ImplementsRepaintBoundaryMarker verifies the compile-time
+// interface check for widget.RepaintBoundaryMarker.
+func TestRepaintBoundary_ImplementsRepaintBoundaryMarker(t *testing.T) {
+	var rb interface{} = &primitives.RepaintBoundary{}
+	if _, ok := rb.(widget.RepaintBoundaryMarker); !ok {
+		t.Error("RepaintBoundary should implement widget.RepaintBoundaryMarker")
+	}
+}

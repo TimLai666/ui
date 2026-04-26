@@ -108,6 +108,16 @@ type RepaintBoundary struct {
 	sceneRenderer *scene.Renderer
 	sceneObj      *scene.Scene
 	pixmap        *gg.Pixmap
+
+	// boundaryDirty indicates that a descendant has changed and this
+	// boundary's cache needs to be re-rendered. Set by upward dirty
+	// propagation (ADR-007) via [MarkBoundaryDirty].
+	boundaryDirty bool
+
+	// onBoundaryDirty is a callback invoked when this boundary transitions
+	// from clean to dirty. Used by the Window to collect dirty boundaries
+	// into its dirtyBoundaries set (ADR-007, Task 1e).
+	onBoundaryDirty func(rb *RepaintBoundary)
 }
 
 // Option configures a [RepaintBoundary].
@@ -173,6 +183,45 @@ func (rb *RepaintBoundary) CacheValid() bool {
 // manual invocation is rarely needed.
 func (rb *RepaintBoundary) InvalidateCache() {
 	rb.cacheValid = false
+}
+
+// MarkBoundaryDirty marks this repaint boundary as needing re-rendering.
+//
+// Called by the upward dirty propagation in [widget.WidgetBase.SetNeedsRedraw]
+// when a descendant widget changes. This invalidates the pixel cache and
+// notifies the Window (via callback) to add this boundary to its dirty set.
+//
+// Implements [widget.RepaintBoundaryMarker].
+func (rb *RepaintBoundary) MarkBoundaryDirty() {
+	if rb.boundaryDirty {
+		return // Already dirty — O(1) guard.
+	}
+	rb.boundaryDirty = true
+	rb.cacheValid = false
+
+	if rb.onBoundaryDirty != nil {
+		rb.onBoundaryDirty(rb)
+	}
+}
+
+// IsBoundaryDirty reports whether this boundary has been marked dirty by
+// upward propagation since the last draw pass.
+func (rb *RepaintBoundary) IsBoundaryDirty() bool {
+	return rb.boundaryDirty
+}
+
+// ClearBoundaryDirty resets the boundary dirty flag after the boundary
+// has been repainted. Called by the Window after painting dirty boundaries.
+func (rb *RepaintBoundary) ClearBoundaryDirty() {
+	rb.boundaryDirty = false
+}
+
+// SetOnBoundaryDirty sets the callback invoked when this boundary
+// transitions from clean to dirty via upward propagation.
+//
+// Used by the Window to collect dirty boundaries into its set.
+func (rb *RepaintBoundary) SetOnBoundaryDirty(fn func(rb *RepaintBoundary)) {
+	rb.onBoundaryDirty = fn
 }
 
 // --- widget.Widget interface ---
@@ -663,6 +712,7 @@ func (rb *RepaintBoundary) AccessibilityActions() []a11y.Action {
 
 // Compile-time interface checks.
 var (
-	_ widget.Widget   = (*RepaintBoundary)(nil)
-	_ a11y.Accessible = (*RepaintBoundary)(nil)
+	_ widget.Widget                = (*RepaintBoundary)(nil)
+	_ widget.RepaintBoundaryMarker = (*RepaintBoundary)(nil)
+	_ a11y.Accessible              = (*RepaintBoundary)(nil)
 )

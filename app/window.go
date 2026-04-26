@@ -18,6 +18,12 @@ import (
 	"github.com/gogpu/ui/widget"
 )
 
+// dirtyBoundaryEntry tracks a RepaintBoundary that has been marked dirty
+// by upward propagation. The key is the boundary's CacheKey for deduplication.
+type dirtyBoundaryEntry struct {
+	boundary widget.RepaintBoundaryMarker
+}
+
 const (
 	// defaultWidth is the default window width in headless mode.
 	defaultWidth = 800
@@ -117,6 +123,12 @@ type Window struct {
 	// cache, which enforces a memory budget (default 64MB) and evicts
 	// least-recently-used entries. Phase 5, ADR-004.
 	imageCache *internalRender.ImageCache
+
+	// dirtyBoundaries collects RepaintBoundary instances marked dirty by
+	// upward propagation (ADR-007, Task 1e). Populated by the
+	// onBoundaryDirty callback wired during mount. Used by future Phase 2
+	// PaintDirtyBoundaries to repaint only changed boundaries.
+	dirtyBoundaries map[uint64]dirtyBoundaryEntry
 }
 
 // newWindow creates a Window with the given providers.
@@ -144,6 +156,7 @@ func newWindow(
 		dirtyTracker:     tracker,
 		dirtyCollector:   dirty.NewCollector(tracker),
 		imageCache:       imgCache,
+		dirtyBoundaries:  make(map[uint64]dirtyBoundaryEntry),
 	}
 
 	// Set centralized image cache on context so RepaintBoundary instances
@@ -1103,6 +1116,41 @@ func widgetCursorToPlatform(c widget.CursorType) gpucontext.CursorShape {
 		return gpucontext.CursorNone
 	default:
 		return gpucontext.CursorDefault
+	}
+}
+
+// --- Dirty Boundary Management (ADR-007, Task 1e) ---
+
+// AddDirtyBoundary registers a RepaintBoundary as dirty. Called by the
+// onBoundaryDirty callback during upward dirty propagation.
+//
+// The key parameter is the boundary's unique cache key for deduplication.
+// If the boundary is already in the set, this is a no-op.
+func (w *Window) AddDirtyBoundary(key uint64, boundary widget.RepaintBoundaryMarker) {
+	if w.dirtyBoundaries == nil {
+		w.dirtyBoundaries = make(map[uint64]dirtyBoundaryEntry)
+	}
+	w.dirtyBoundaries[key] = dirtyBoundaryEntry{boundary: boundary}
+}
+
+// HasDirtyBoundaries reports whether any RepaintBoundary has been marked
+// dirty since the last paint pass.
+func (w *Window) HasDirtyBoundaries() bool {
+	return len(w.dirtyBoundaries) > 0
+}
+
+// DirtyBoundaryCount returns the number of dirty RepaintBoundary instances.
+func (w *Window) DirtyBoundaryCount() int {
+	return len(w.dirtyBoundaries)
+}
+
+// ClearDirtyBoundaries resets the dirty boundary set after painting.
+// Each boundary's ClearBoundaryDirty is NOT called here — that is the
+// responsibility of the PaintDirtyBoundaries method (Phase 2).
+func (w *Window) ClearDirtyBoundaries() {
+	// Clear map efficiently: delete all entries but keep the allocated map.
+	for k := range w.dirtyBoundaries {
+		delete(w.dirtyBoundaries, k)
 	}
 }
 

@@ -350,6 +350,36 @@ func (w *Widget) AccessibilityActions() []a11y.Action {
 
 // --- Internal helpers ---
 
+// markItemDirty marks a specific item's widget as needing redraw without
+// invalidating the entire cache or triggering layout. This enables paint-only
+// hover changes: only the affected item(s) are repainted, not all visible
+// items (ADR-007, Task 1f).
+//
+// The hover state is passed to the Painter at paint-time via the
+// virtualContent.Draw method, so the widget tree does NOT need rebuilding.
+func (w *Widget) markItemDirty(index int) {
+	offset := index - w.cache.startIndex
+	if offset < 0 || offset >= len(w.cache.widgets) {
+		return // Item is not in the visible/cached range.
+	}
+
+	// Mark the cached widget as needing redraw.
+	if item := w.cache.widgetAt(offset); item != nil {
+		if setter, ok := item.(interface{ SetNeedsRedraw(bool) }); ok {
+			setter.SetNeedsRedraw(true)
+		}
+	}
+
+	// Also mark the RepaintBoundary wrapper so its cache is invalidated.
+	if rb := w.cache.boundaryAt(offset); rb != nil {
+		rb.InvalidateCache()
+		rb.SetNeedsRedraw(true)
+	}
+
+	// Mark self as needing redraw (paint-only, no layout).
+	w.SetNeedsRedraw(true)
+}
+
 // currentScrollY returns the current vertical scroll offset.
 func (w *Widget) currentScrollY() float32 {
 	_, y := w.scroll.ScrollOffset()
