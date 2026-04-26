@@ -633,8 +633,25 @@ func (c *Canvas) ReplayScene(s *scene.Scene) {
 	if s == nil || s.IsEmpty() {
 		return
 	}
+	// Apply current canvas offset so the scene renders at the correct
+	// position within the parent. The scene was recorded in local
+	// coordinates (0,0 based by SceneCanvas). We translate the gg.Context
+	// to the current offset before replay, then restore after.
+	//
+	// We don't use GPUSceneRenderer here because it calls dc.Identity()
+	// on TagTransform, which resets the parent transform. Instead, use
+	// scene.Renderer (tile-parallel with GPU auto-select) which renders
+	// the scene to a pixmap, then blit the result.
+	//
+	// For now, use the direct GPU renderer with Push/Pop + Translate
+	// to position the scene output correctly.
+	c.dc.Push()
+	ox := float64(c.currentOffset.X)
+	oy := float64(c.currentOffset.Y)
+	c.dc.Translate(ox, oy)
 	renderer := scene.NewGPUSceneRenderer(c.dc)
 	_ = renderer.RenderScene(s)
+	c.dc.Pop()
 }
 
 // RenderSVG renders full SVG XML within the given bounds with color override.

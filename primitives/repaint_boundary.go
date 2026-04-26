@@ -381,7 +381,9 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 		rb.recordCacheHit(ctx)
 		rb.consecutiveHits++
 		rb.evaluatePromotion(w, h)
+		canvas.PushTransform(bounds.Min)
 		canvas.ReplayScene(rb.cachedScene)
+		canvas.PopTransform()
 		return
 	}
 
@@ -407,7 +409,9 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 	rb.lastSceneVersion = rb.cacheVersion
 
 	// Replay the freshly recorded scene into the parent canvas.
+	canvas.PushTransform(bounds.Min)
 	canvas.ReplayScene(rb.cachedScene)
+	canvas.PopTransform()
 }
 
 // recordCacheHit increments the cache hit counter and records the hit
