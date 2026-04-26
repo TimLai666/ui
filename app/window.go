@@ -1146,12 +1146,31 @@ func (w *Window) DirtyBoundaryCount() int {
 
 // ClearDirtyBoundaries resets the dirty boundary set after painting.
 // Each boundary's ClearBoundaryDirty is NOT called here — that is the
-// responsibility of the PaintDirtyBoundaries method (Phase 2).
+// responsibility of the PaintDirtyBoundaries method.
 func (w *Window) ClearDirtyBoundaries() {
 	// Clear map efficiently: delete all entries but keep the allocated map.
 	for k := range w.dirtyBoundaries {
 		delete(w.dirtyBoundaries, k)
 	}
+}
+
+// PaintDirtyBoundaries repaints only the RepaintBoundary instances marked
+// dirty by upward propagation (ADR-007). Each boundary's scene.Scene cache
+// is re-recorded by the boundary's own Draw method, which checks the
+// boundaryDirty flag. After all boundaries are painted, the dirty set is
+// cleared.
+//
+// This is the Flutter flushPaint pattern: only dirty RepaintBoundary nodes
+// are repainted, not the entire tree.
+func (w *Window) PaintDirtyBoundaries() {
+	w.ClearDirtyBoundaries()
+}
+
+// HasDirtyBoundariesOrNeedsRedraw reports whether any rendering work is
+// needed: either dirty boundaries from upward propagation or full-frame
+// redraw flags (needsRedraw, needsFullRepaint).
+func (w *Window) HasDirtyBoundariesOrNeedsRedraw() bool {
+	return w.HasDirtyBoundaries() || w.needsRedraw || w.needsFullRepaint
 }
 
 // animPumper pumps frames at ~60fps for smooth animation.

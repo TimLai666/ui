@@ -1,6 +1,7 @@
 package cupertino_test
 
 import (
+	"github.com/gogpu/gg/scene"
 	"image"
 	"testing"
 
@@ -95,6 +96,7 @@ func (c *recordCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordCanvas) PopTransform()                                {}
 func (c *recordCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *recordCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *recordCanvas) ReplayScene(_ *scene.Scene)                   {}
 
 // Method name constants to satisfy goconst.
 const (

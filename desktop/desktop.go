@@ -95,6 +95,11 @@ type renderLoop struct {
 // or continuously (game loop mode). Either way, the acquired GPU surface
 // MUST receive valid content because gogpu presents it unconditionally
 // after this callback returns.
+//
+// ADR-007 Phase 2: On frames where DrawTo returns false (nothing changed),
+// we still call present() because gogpu presents unconditionally. However,
+// the previous pixmap content is preserved (persistent pixmap pattern) and
+// the upload is a no-op when no dirty region is marked.
 func (rl *renderLoop) draw(dc *gogpu.Context) {
 	w, h := dc.Width(), dc.Height()
 	if w <= 0 || h <= 0 {
@@ -126,10 +131,10 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	// FrameworkManaged: DrawTo handles background + dirty-region clipping.
 	// Pixmap persists between frames — clean regions keep previous pixels.
 	//
-	// We call BeginAcceleratorFrame + DrawTo directly (instead of canvas.Draw)
-	// to avoid marking the entire pixmap dirty. After DrawTo, we mark only
-	// the dirty union for partial GPU upload — a 48×48 spinner uploads 9KB
-	// instead of 1.92MB (full pixmap).
+	// RepaintBoundary (ADR-007) uses scene.Scene display lists instead of
+	// GPU textures. Each boundary's Draw checks its boundaryDirty flag and
+	// replays the cached scene via Canvas.ReplayScene when clean. This
+	// eliminates the CPU/GPU split that caused flickering.
 	gg.BeginAcceleratorFrame()
 	cc := rl.canvas.Context()
 
@@ -160,6 +165,11 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	if damageFrame {
 		cc.SetRasterizerMode(savedMode)
 	}
+
+	// Clear dirty boundaries after the draw pass. The boundaries have
+	// already re-recorded their scenes during DrawTo (RepaintBoundary.Draw
+	// checks boundaryDirty and re-records when dirty).
+	win.PaintDirtyBoundaries()
 
 	rl.lastDirtyRect = image.Rectangle{}
 	if drawn {

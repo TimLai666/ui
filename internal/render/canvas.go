@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/gogpu/gg"
+	"github.com/gogpu/gg/scene"
 	"github.com/gogpu/gg/svg"
 	"github.com/gogpu/gg/text"
 	"github.com/gogpu/gpucontext"
@@ -619,6 +620,21 @@ func (c *Canvas) FillSVGPath(svgData string, viewBox float32, bounds geometry.Re
 	c.dc.SetFillRule(gg.FillRuleEvenOdd)
 	c.dc.FillPath(path)
 	c.dc.Pop()
+}
+
+// ReplayScene renders a previously recorded scene.Scene display list into
+// this canvas. The scene commands are decoded and routed through gg.Context's
+// GPU accelerator, which auto-selects GPU or CPU rendering per shape.
+//
+// This is the retained-mode replay path (ADR-007): RepaintBoundary caches
+// child drawing as a scene.Scene and replays it on cache hit instead of
+// re-executing child.Draw().
+func (c *Canvas) ReplayScene(s *scene.Scene) {
+	if s == nil || s.IsEmpty() {
+		return
+	}
+	renderer := scene.NewGPUSceneRenderer(c.dc)
+	_ = renderer.RenderScene(s)
 }
 
 // RenderSVG renders full SVG XML within the given bounds with color override.

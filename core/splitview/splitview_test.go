@@ -1,6 +1,7 @@
 package splitview_test
 
 import (
+	"github.com/gogpu/gg/scene"
 	"image"
 	"testing"
 	"time"
@@ -75,6 +76,7 @@ func (c *canvasRecorder) PushTransform(_ geometry.Point)               {}
 func (c *canvasRecorder) PopTransform()                                {}
 func (c *canvasRecorder) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *canvasRecorder) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *canvasRecorder) ReplayScene(_ *scene.Scene)                   {}
 
 // Compile-time check.
 var _ widget.Canvas = (*canvasRecorder)(nil)

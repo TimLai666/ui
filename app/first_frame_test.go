@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/gogpu/gg/scene"
 	"image"
 	"strings"
 	"testing"
@@ -63,6 +64,7 @@ func (c *trackingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *trackingCanvas) PopTransform()                                {}
 func (c *trackingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *trackingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *trackingCanvas) ReplayScene(_ *scene.Scene)                   {}
 
 // Compile-time check.
 var _ widget.Canvas = (*trackingCanvas)(nil)

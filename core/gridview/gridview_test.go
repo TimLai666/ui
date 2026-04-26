@@ -1,6 +1,7 @@
 package gridview_test
 
 import (
+	"github.com/gogpu/gg/scene"
 	"image"
 	"testing"
 
@@ -1254,6 +1255,7 @@ func (m *mockCanvas) PushTransform(_ geometry.Point)               {}
 func (m *mockCanvas) PopTransform()                                {}
 func (m *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (m *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (m *mockCanvas) ReplayScene(_ *scene.Scene)                   {}
 
 type testPainter struct {
 	cellBackgroundCalls int

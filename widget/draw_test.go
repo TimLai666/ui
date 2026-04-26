@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"github.com/gogpu/gg/scene"
 	"image"
 	"testing"
 
@@ -374,6 +375,7 @@ func (c *noopCanvas) PushTransform(geometry.Point)                 {}
 func (c *noopCanvas) PopTransform()                                {}
 func (c *noopCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *noopCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *noopCanvas) ReplayScene(_ *scene.Scene)                   {}
 
 var _ Canvas = (*noopCanvas)(nil)
 

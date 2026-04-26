@@ -3,6 +3,7 @@ package widget
 import (
 	"image"
 
+	"github.com/gogpu/gg/scene"
 	"github.com/gogpu/ui/geometry"
 )
 
@@ -178,6 +179,18 @@ type Canvas interface {
 	// skip Draw on children whose bounds don't intersect the clip region,
 	// preventing offscreen widgets from ticking animations.
 	ClipBounds() geometry.Rect
+
+	// ReplayScene renders a previously recorded scene.Scene display list
+	// into this canvas. Used by RepaintBoundary to replay cached content
+	// without re-executing the child widget's Draw method.
+	//
+	// For Canvas (gg.Context wrapper): renders the scene via GPU scene
+	// renderer, which routes commands through gg.Context's GPU accelerator.
+	// For SceneCanvas: merges the child scene into the parent scene via
+	// Scene.Append (O(commands), zero re-encoding).
+	//
+	// If s is nil or empty, this is a no-op.
+	ReplayScene(s *scene.Scene)
 }
 
 // LineCap specifies how the endpoints of stroked arcs and lines are drawn.

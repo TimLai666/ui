@@ -1,6 +1,7 @@
 package collapsible
 
 import (
+	"github.com/gogpu/gg/scene"
 	"image"
 	"testing"
 	"time"
@@ -691,3 +692,4 @@ func (c *internalMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalMockCanvas) PopTransform()                                {}
 func (c *internalMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *internalMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *internalMockCanvas) ReplayScene(_ *scene.Scene)                   {}
