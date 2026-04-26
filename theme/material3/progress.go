@@ -59,7 +59,7 @@ func (p ProgressPainter) paintDeterminate(canvas widget.Canvas, ps progress.Pain
 	if ps.Value > 0 {
 		startAngle := -math.Pi / 2
 		sweepAngle := ps.Value * 2 * math.Pi
-		m3DrawProgressArc(canvas, center, radius, startAngle, sweepAngle, indicatorColor, ps.StrokeWidth)
+		strokeArcWithCap(canvas, center, radius, startAngle, sweepAngle, indicatorColor, ps.StrokeWidth, widget.LineCapRound)
 	}
 
 	// Draw label centered if enabled.
@@ -75,16 +75,50 @@ func (p ProgressPainter) paintDeterminate(canvas widget.Canvas, ps progress.Pain
 	}
 }
 
-// paintIndeterminate draws a rotating partial arc using M3 colors.
+// paintIndeterminate draws a variable-length rotating arc per M3 spec.
+// The arc grows from ~0° to ~270° then shrinks back on a 1.333s cycle
+// while continuously rotating (Flutter progress_indicator.dart reference).
 func (p ProgressPainter) paintIndeterminate(canvas widget.Canvas, ps progress.PaintState, center geometry.Point, radius float32) {
 	trackColor, indicatorColor, _ := p.resolveProgressColors(ps)
 
 	// Draw track circle.
 	canvas.StrokeCircle(center, radius, trackColor, ps.StrokeWidth)
 
-	// Draw rotating arc.
-	startAngle := -math.Pi/2 + ps.Rotation
-	m3DrawProgressArc(canvas, center, radius, startAngle, m3ProgressIndeterminateSpan, indicatorColor, ps.StrokeWidth)
+	// Compute head/tail using eased sawtooth.
+	// Phase 0.0-0.5: head runs ahead (arc grows), phase 0.5-1.0: tail catches up (arc shrinks).
+	phase := ps.AnimationPhase
+	headValue := m3EaseInOut(math.Min(phase*2, 1.0))
+	tailValue := m3EaseInOut(math.Max((phase-0.5)*2, 0.0))
+
+	// Arc sweep from tail to head, scaled to 3/4 turn (270°).
+	arcSweep := (headValue - tailValue) * m3MaxArcSweep
+	if arcSweep < m3MinArcSweep {
+		arcSweep = m3MinArcSweep
+	}
+
+	// Arc start = base rotation + tail offset.
+	arcStart := -math.Pi/2 + ps.Rotation + tailValue*m3MaxArcSweep
+
+	strokeArcWithCap(canvas, center, radius, arcStart, arcSweep, indicatorColor, ps.StrokeWidth, widget.LineCapRound)
+}
+
+// strokeArcWithCap draws an arc using StrokeArcStyled if available, falling back to StrokeArc.
+func strokeArcWithCap(canvas widget.Canvas, center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32, lineCap widget.LineCap) {
+	if s, ok := canvas.(widget.ArcStroker); ok {
+		s.StrokeArcStyled(center, radius, startAngle, sweepAngle, color, strokeWidth, lineCap)
+		return
+	}
+	canvas.StrokeArc(center, radius, startAngle, sweepAngle, color, strokeWidth)
+}
+
+// m3EaseInOut applies a cubic ease-in-out curve (approximation of Flutter's fastOutSlowIn).
+func m3EaseInOut(t float64) float64 {
+	if t < 0.5 {
+		return 4 * t * t * t
+	}
+	v := -2*t + 2
+	return 1 - v*v*v/2
 }
 
 // resolveProgressColors returns track, indicator, and label colors for the current state.
@@ -108,38 +142,6 @@ func (p ProgressPainter) resolveProgressColors(ps progress.PaintState) (track, i
 	return m3ProgressDefaultTrack, m3ProgressDefaultIndicator, m3ProgressDefaultLabel
 }
 
-// m3DrawProgressArc approximates a circular arc using line segments.
-func m3DrawProgressArc(canvas widget.Canvas, center geometry.Point, radius float32, startAngle, sweepAngle float64, color widget.Color, strokeWidth float32) {
-	if sweepAngle == 0 {
-		return
-	}
-
-	segments := int(math.Ceil(float64(m3ProgressArcSegments) * math.Abs(sweepAngle) / (2 * math.Pi)))
-	if segments < 2 {
-		segments = 2
-	}
-
-	step := sweepAngle / float64(segments)
-	prevX := center.X + radius*float32(math.Cos(startAngle))
-	prevY := center.Y + radius*float32(math.Sin(startAngle))
-
-	for i := 1; i <= segments; i++ {
-		angle := startAngle + float64(i)*step
-		curX := center.X + radius*float32(math.Cos(angle))
-		curY := center.Y + radius*float32(math.Sin(angle))
-
-		canvas.DrawLine(
-			geometry.Pt(prevX, prevY),
-			geometry.Pt(curX, curY),
-			color,
-			strokeWidth,
-		)
-
-		prevX = curX
-		prevY = curY
-	}
-}
-
 // Default M3 colors for circular progress.
 var (
 	m3ProgressDefaultIndicator  = widget.Hex(0x6750A4)                // M3 primary
@@ -151,10 +153,10 @@ var (
 
 // M3 circular progress drawing constants.
 const (
-	m3ProgressFontSize          float32 = 12
-	m3ProgressTextAlign                 = widget.TextAlignCenter
-	m3ProgressArcSegments               = 64
-	m3ProgressIndeterminateSpan float64 = math.Pi * 0.75 // 270 degree arc for spinner
+	m3ProgressFontSize  float32 = 12
+	m3ProgressTextAlign         = widget.TextAlignCenter
+	m3MaxArcSweep               = math.Pi * 1.5 // 270° maximum arc sweep
+	m3MinArcSweep               = 0.05          // minimum arc to prevent visual disappearance
 )
 
 // Compile-time check that ProgressPainter implements Painter.

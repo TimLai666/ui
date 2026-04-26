@@ -18,20 +18,21 @@ type Painter interface {
 
 // PaintState provides the current progress indicator state to the painter.
 type PaintState struct {
-	Value         float64             // current value clamped to [0, 1] (determinate mode)
-	Bounds        geometry.Rect       // total widget bounds
-	Diameter      float32             // indicator diameter in logical pixels
-	StrokeWidth   float32             // arc stroke width in logical pixels
-	ShowLabel     bool                // whether to show percentage label (determinate only)
-	Label         string              // pre-formatted label text (empty if ShowLabel is false)
-	Indeterminate bool                // true for spinner mode
-	Rotation      float64             // current rotation in radians (indeterminate mode)
-	Disabled      bool                // widget is disabled
-	ColorScheme   ProgressColorScheme // theme-derived colors (zero = use defaults)
+	Value          float64             // current value clamped to [0, 1] (determinate mode)
+	Bounds         geometry.Rect       // total widget bounds
+	Diameter       float32             // indicator diameter in logical pixels
+	StrokeWidth    float32             // arc stroke width in logical pixels
+	ShowLabel      bool                // whether to show percentage label (determinate only)
+	Label          string              // pre-formatted label text (empty if ShowLabel is false)
+	Indeterminate  bool                // true for spinner mode
+	Rotation       float64             // current rotation in radians (indeterminate mode)
+	AnimationPhase float64             // 0-1 sawtooth phase within one grow/shrink cycle
+	Disabled       bool                // widget is disabled
+	ColorScheme    ProgressColorScheme // theme-derived colors (zero = use defaults)
 }
 
 // DefaultPainter provides a minimal fallback painter with no design system styling.
-// It draws a circular progress indicator using polyline arc approximation.
+// It draws a circular progress indicator using cubic Bézier arc strokes.
 type DefaultPainter struct{}
 
 // PaintProgress renders the circular progress indicator.
@@ -81,7 +82,7 @@ func (p DefaultPainter) paintDeterminate(canvas widget.Canvas, ps PaintState, ce
 		// Start from top (-pi/2), sweep clockwise by value * 2*pi.
 		startAngle := -math.Pi / 2
 		sweepAngle := ps.Value * 2 * math.Pi
-		drawArc(canvas, center, radius, startAngle, sweepAngle, indicatorColor, ps.StrokeWidth)
+		drawArcStyled(canvas, center, radius, startAngle, sweepAngle, indicatorColor, ps.StrokeWidth, widget.LineCapButt)
 	}
 
 	// Draw label centered if enabled.
@@ -99,7 +100,7 @@ func (p DefaultPainter) paintDeterminate(canvas widget.Canvas, ps PaintState, ce
 	}
 }
 
-// paintIndeterminate draws a rotating partial arc.
+// paintIndeterminate draws a variable-length rotating arc.
 func (p DefaultPainter) paintIndeterminate(canvas widget.Canvas, ps PaintState, center geometry.Point, radius float32) {
 	hasScheme := ps.ColorScheme != (ProgressColorScheme{})
 
@@ -107,45 +108,40 @@ func (p DefaultPainter) paintIndeterminate(canvas widget.Canvas, ps PaintState, 
 	trackColor := resolveTrackColor(ps, hasScheme)
 	canvas.StrokeCircle(center, radius, trackColor, ps.StrokeWidth)
 
-	// Draw rotating arc.
+	// Compute variable sweep from AnimationPhase.
+	phase := ps.AnimationPhase
+	headValue := easeInOut(math.Min(phase*2, 1.0))
+	tailValue := easeInOut(math.Max((phase-0.5)*2, 0.0))
+
+	const maxSweep = math.Pi * 1.5 // 270°
+	const minSweep = 0.05
+	arcSweep := (headValue - tailValue) * maxSweep
+	if arcSweep < minSweep {
+		arcSweep = minSweep
+	}
+	arcStart := -math.Pi/2 + ps.Rotation + tailValue*maxSweep
+
 	indicatorColor := resolveIndicatorColor(ps, hasScheme)
-	startAngle := -math.Pi/2 + ps.Rotation
-	drawArc(canvas, center, radius, startAngle, indeterminateArcSpan, indicatorColor, ps.StrokeWidth)
+	drawArcStyled(canvas, center, radius, arcStart, arcSweep, indicatorColor, ps.StrokeWidth, widget.LineCapRound)
 }
 
-// drawArc approximates a circular arc using line segments.
-// startAngle and sweepAngle are in radians. The arc is drawn clockwise
-// from startAngle by sweepAngle.
-func drawArc(canvas widget.Canvas, center geometry.Point, radius float32, startAngle, sweepAngle float64, color widget.Color, strokeWidth float32) {
-	if sweepAngle == 0 {
+// drawArcStyled draws an arc with the specified line cap, falling back to StrokeArc.
+func drawArcStyled(canvas widget.Canvas, center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32, lineCap widget.LineCap) {
+	if s, ok := canvas.(widget.ArcStroker); ok {
+		s.StrokeArcStyled(center, radius, startAngle, sweepAngle, color, strokeWidth, lineCap)
 		return
 	}
+	canvas.StrokeArc(center, radius, startAngle, sweepAngle, color, strokeWidth)
+}
 
-	// Number of segments proportional to the sweep angle.
-	segments := int(math.Ceil(float64(arcSegments) * math.Abs(sweepAngle) / (2 * math.Pi)))
-	if segments < 2 {
-		segments = 2
+// easeInOut applies a cubic ease-in-out curve.
+func easeInOut(t float64) float64 {
+	if t < 0.5 {
+		return 4 * t * t * t
 	}
-
-	step := sweepAngle / float64(segments)
-	prevX := center.X + radius*float32(math.Cos(startAngle))
-	prevY := center.Y + radius*float32(math.Sin(startAngle))
-
-	for i := 1; i <= segments; i++ {
-		angle := startAngle + float64(i)*step
-		curX := center.X + radius*float32(math.Cos(angle))
-		curY := center.Y + radius*float32(math.Sin(angle))
-
-		canvas.DrawLine(
-			geometry.Pt(prevX, prevY),
-			geometry.Pt(curX, curY),
-			color,
-			strokeWidth,
-		)
-
-		prevX = curX
-		prevY = curY
-	}
+	v := -2*t + 2
+	return 1 - v*v*v/2
 }
 
 // Color resolution helpers.

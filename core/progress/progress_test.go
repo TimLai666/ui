@@ -232,8 +232,8 @@ func TestDraw_Determinate(t *testing.T) {
 	if canvas.strokeCircleCount == 0 {
 		t.Error("should draw track circle via StrokeCircle")
 	}
-	if canvas.lineCount == 0 {
-		t.Error("should draw arc segments via DrawLine")
+	if canvas.strokeArcCount == 0 {
+		t.Error("should draw arc via StrokeArc")
 	}
 }
 
@@ -249,8 +249,8 @@ func TestDraw_ZeroValue(t *testing.T) {
 	if canvas.strokeCircleCount == 0 {
 		t.Error("should draw track circle even at 0% value")
 	}
-	if canvas.lineCount > 0 {
-		t.Error("should not draw arc lines at 0% value")
+	if canvas.strokeArcCount > 0 {
+		t.Error("should not draw arc at 0% value")
 	}
 }
 
@@ -265,8 +265,8 @@ func TestDraw_FullValue(t *testing.T) {
 	if canvas.strokeCircleCount == 0 {
 		t.Error("should draw track circle at 100%")
 	}
-	if canvas.lineCount == 0 {
-		t.Error("should draw full arc at 100%")
+	if canvas.strokeArcCount == 0 {
+		t.Error("should draw full arc at 100% via StrokeArc")
 	}
 }
 
@@ -336,8 +336,8 @@ func TestDraw_Indeterminate(t *testing.T) {
 	if canvas.strokeCircleCount == 0 {
 		t.Error("indeterminate should draw track circle")
 	}
-	if canvas.lineCount == 0 {
-		t.Error("indeterminate should draw rotating arc segments")
+	if canvas.strokeArcCount == 0 {
+		t.Error("indeterminate should draw rotating arc")
 	}
 }
 
@@ -788,12 +788,131 @@ func TestDraw_IndeterminateRotationChanges(t *testing.T) {
 	canvas2 := &recordingCanvas{}
 	w.Draw(ctx, canvas2)
 
-	// Both should draw, confirming continuous animation works.
-	if canvas1.lineCount == 0 {
-		t.Error("first frame should draw arc lines")
+	if canvas1.strokeArcCount == 0 {
+		t.Error("first frame should draw arc")
 	}
-	if canvas2.lineCount == 0 {
-		t.Error("second frame should draw arc lines")
+	if canvas2.strokeArcCount == 0 {
+		t.Error("second frame should draw arc")
+	}
+}
+
+// --- RepaintBoundary Tests ---
+
+func TestDraw_IndeterminateBoundaryCreated(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	ctx := widget.NewContext()
+	ctx.SetNow(time.Now())
+	canvas := &recordingCanvas{}
+
+	w.Draw(ctx, canvas)
+
+	if canvas.strokeCircleCount == 0 {
+		t.Error("indeterminate draw should draw track circle")
+	}
+	if canvas.strokeArcCount == 0 {
+		t.Error("indeterminate draw should draw rotating arc")
+	}
+}
+
+func TestDraw_DeterminateShouldNotUseBoundary(t *testing.T) {
+	w := progress.New(progress.Value(0.5))
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	ctx := widget.NewContext()
+	canvas := &recordingCanvas{}
+
+	w.Draw(ctx, canvas)
+
+	// Determinate mode draws directly via the painter — no DrawImage compositing.
+	if canvas.drawImageCount > 0 {
+		t.Error("determinate mode should not use RepaintBoundary (no DrawImage)")
+	}
+	if canvas.strokeCircleCount == 0 {
+		t.Error("determinate mode should draw track circle directly")
+	}
+}
+
+func TestDraw_ModeSwitchDeterminateVsIndeterminate(t *testing.T) {
+	ctx := widget.NewContext()
+	ctx.SetNow(time.Now())
+
+	// Indeterminate draws arc.
+	w1 := progress.New(progress.Indeterminate(true))
+	w1.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	c1 := &recordingCanvas{}
+	w1.Draw(ctx, c1)
+	if c1.strokeArcCount == 0 {
+		t.Error("indeterminate should draw arc")
+	}
+
+	// Determinate draws arc proportional to value.
+	w2 := progress.New(progress.Value(0.75))
+	w2.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	c2 := &recordingCanvas{}
+	w2.Draw(ctx, c2)
+	if c2.strokeCircleCount == 0 {
+		t.Error("determinate should draw track circle")
+	}
+}
+
+func TestUnmount_DoesNotPanic(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	ctx := widget.NewContext()
+	ctx.SetNow(time.Now())
+	canvas := &recordingCanvas{}
+
+	w.Draw(ctx, canvas)
+
+	// Unmount should not panic.
+	w.Unmount()
+
+	// Drawing again after unmount should work.
+	canvas2 := &recordingCanvas{}
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	w.Draw(ctx, canvas2)
+	if canvas2.strokeArcCount == 0 {
+		t.Error("should draw arc after Unmount + Draw")
+	}
+}
+
+func TestDraw_IndeterminateWithCustomPainter(t *testing.T) {
+	p := &mockPainter{}
+	w := progress.New(
+		progress.Indeterminate(true),
+		progress.PainterOpt(p),
+	)
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	ctx := widget.NewContext()
+	ctx.SetNow(time.Now())
+	canvas := &recordingCanvas{}
+
+	w.Draw(ctx, canvas)
+
+	// The custom painter should be called (via the RepaintBoundary's offscreen path).
+	if !p.called {
+		t.Error("custom painter should be called in indeterminate mode through RepaintBoundary")
+	}
+}
+
+func TestDraw_IndeterminateMultipleFrames(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	ctx := widget.NewContext()
+	now := time.Now()
+
+	// Draw 5 frames, each advancing time.
+	for i := range 5 {
+		ctx.SetNow(now.Add(time.Duration(i) * 100 * time.Millisecond))
+		canvas := &recordingCanvas{}
+		w.Draw(ctx, canvas)
+
+		if canvas.strokeArcCount == 0 {
+			t.Errorf("frame %d: should draw rotating arc", i)
+		}
+		if !w.NeedsRedraw() {
+			t.Errorf("frame %d: should still request redraw", i)
+		}
 	}
 }
 
@@ -819,13 +938,16 @@ func (s *mockScheduler) MarkDirty(_ widget.Widget) {
 type recordingCanvas struct {
 	drawCount         int
 	strokeCircleCount int
+	strokeArcCount    int
 	lineCount         int
+	drawImageCount    int
 	drewText          bool
 	lastText          string
 }
 
 func (c *recordingCanvas) Clear(_ widget.Color)                                     {}
 func (c *recordingCanvas) DrawRect(_ geometry.Rect, _ widget.Color)                 { c.drawCount++ }
+func (c *recordingCanvas) FillRectDirect(_ geometry.Rect, _ widget.Color)           {}
 func (c *recordingCanvas) StrokeRect(_ geometry.Rect, _ widget.Color, _ float32)    { c.drawCount++ }
 func (c *recordingCanvas) DrawRoundRect(_ geometry.Rect, _ widget.Color, _ float32) { c.drawCount++ }
 func (c *recordingCanvas) StrokeRoundRect(_ geometry.Rect, _ widget.Color, _ float32, _ float32) {
@@ -837,6 +959,10 @@ func (c *recordingCanvas) DrawCircle(_ geometry.Point, _ float32, _ widget.Color
 func (c *recordingCanvas) StrokeCircle(_ geometry.Point, _ float32, _ widget.Color, _ float32) {
 	c.drawCount++
 	c.strokeCircleCount++
+}
+func (c *recordingCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+	c.drawCount++
+	c.strokeArcCount++
 }
 func (c *recordingCanvas) DrawLine(_, _ geometry.Point, _ widget.Color, _ float32) {
 	c.drawCount++
@@ -851,10 +977,14 @@ func (c *recordingCanvas) DrawText(text string, _ geometry.Rect, _ float32, _ wi
 func (c *recordingCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
 	return float32(len([]rune(text))) * fontSize * 0.5
 }
-func (c *recordingCanvas) DrawImage(_ image.Image, _ geometry.Point)    { c.drawCount++ }
+func (c *recordingCanvas) DrawImage(_ image.Image, _ geometry.Point) {
+	c.drawCount++
+	c.drawImageCount++
+}
 func (c *recordingCanvas) PushClip(_ geometry.Rect)                     {}
 func (c *recordingCanvas) PushClipRoundRect(_ geometry.Rect, _ float32) {}
 func (c *recordingCanvas) PopClip()                                     {}
 func (c *recordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordingCanvas) PopTransform()                                {}
 func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *recordingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
