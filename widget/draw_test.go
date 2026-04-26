@@ -287,18 +287,81 @@ func TestDrawStats_ZeroValue(t *testing.T) {
 	}
 }
 
+// --- DrawStatsProvider tests ---
+
+func TestDrawStatsProvider_ContextImplImplementsInterface(t *testing.T) {
+	ctx := NewContext()
+	if _, ok := interface{}(ctx).(DrawStatsProvider); !ok {
+		t.Error("ContextImpl should implement DrawStatsProvider")
+	}
+}
+
+func TestDrawStatsProvider_NilByDefault(t *testing.T) {
+	ctx := NewContext()
+	if ctx.DrawStats() != nil {
+		t.Error("DrawStats should be nil by default")
+	}
+}
+
+func TestDrawStatsProvider_SetAndGet(t *testing.T) {
+	ctx := NewContext()
+	var stats DrawStats
+	ctx.SetDrawStats(&stats)
+
+	got := ctx.DrawStats()
+	if got != &stats {
+		t.Error("DrawStats should return the set pointer")
+	}
+
+	ctx.SetDrawStats(nil)
+	if ctx.DrawStats() != nil {
+		t.Error("DrawStats should be nil after SetDrawStats(nil)")
+	}
+}
+
+func TestDrawTree_SetsDrawStatsOnContext(t *testing.T) {
+	// Verify DrawTree sets DrawStats on the context before drawing
+	// and clears it after.
+	var capturedStats *DrawStats
+	capturedWidget := &statsCapturingWidget{
+		onDraw: func(ctx Context) {
+			if provider, ok := ctx.(DrawStatsProvider); ok {
+				capturedStats = provider.DrawStats()
+			}
+		},
+	}
+	capturedWidget.SetVisible(true)
+	capturedWidget.SetEnabled(true)
+	capturedWidget.SetNeedsRedraw(true)
+
+	ctx := NewContext()
+	canvas := &noopCanvas{}
+	DrawTree(capturedWidget, ctx, canvas)
+
+	if capturedStats == nil {
+		t.Error("DrawStats should be accessible inside Draw via DrawStatsProvider")
+	}
+
+	// After DrawTree returns, stats should be cleared from context.
+	if ctx.DrawStats() != nil {
+		t.Error("DrawStats should be nil after DrawTree returns")
+	}
+}
+
 // noopCanvas is a minimal Canvas implementation for testing.
 type noopCanvas struct{}
 
-func (c *noopCanvas) Clear(Color)                                                     {}
-func (c *noopCanvas) DrawRect(geometry.Rect, Color)                                   {}
-func (c *noopCanvas) StrokeRect(geometry.Rect, Color, float32)                        {}
-func (c *noopCanvas) DrawRoundRect(geometry.Rect, Color, float32)                     {}
-func (c *noopCanvas) StrokeRoundRect(geometry.Rect, Color, float32, float32)          {}
-func (c *noopCanvas) DrawCircle(geometry.Point, float32, Color)                       {}
-func (c *noopCanvas) StrokeCircle(geometry.Point, float32, Color, float32)            {}
-func (c *noopCanvas) DrawLine(geometry.Point, geometry.Point, Color, float32)         {}
-func (c *noopCanvas) DrawText(string, geometry.Rect, float32, Color, bool, TextAlign) {}
+func (c *noopCanvas) Clear(Color)                                                         {}
+func (c *noopCanvas) DrawRect(geometry.Rect, Color)                                       {}
+func (c *noopCanvas) FillRectDirect(geometry.Rect, Color)                                 {}
+func (c *noopCanvas) StrokeRect(geometry.Rect, Color, float32)                            {}
+func (c *noopCanvas) DrawRoundRect(geometry.Rect, Color, float32)                         {}
+func (c *noopCanvas) StrokeRoundRect(geometry.Rect, Color, float32, float32)              {}
+func (c *noopCanvas) DrawCircle(geometry.Point, float32, Color)                           {}
+func (c *noopCanvas) StrokeCircle(geometry.Point, float32, Color, float32)                {}
+func (c *noopCanvas) StrokeArc(geometry.Point, float32, float64, float64, Color, float32) {}
+func (c *noopCanvas) DrawLine(geometry.Point, geometry.Point, Color, float32)             {}
+func (c *noopCanvas) DrawText(string, geometry.Rect, float32, Color, bool, TextAlign)     {}
 
 func (c *noopCanvas) MeasureText(text string, fontSize float32, _ bool) float32 {
 	return float32(len([]rune(text))) * fontSize * 0.5
@@ -310,6 +373,7 @@ func (c *noopCanvas) PopClip()                                     {}
 func (c *noopCanvas) PushTransform(geometry.Point)                 {}
 func (c *noopCanvas) PopTransform()                                {}
 func (c *noopCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *noopCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 var _ Canvas = (*noopCanvas)(nil)
 
@@ -400,3 +464,24 @@ func TestStampScreenOrigin_NilChild(t *testing.T) {
 	// Should not panic
 	StampScreenOrigin(nil, canvas)
 }
+
+// statsCapturingWidget calls a callback during Draw, allowing tests to
+// inspect the Context state (e.g., DrawStats) from inside the draw pass.
+type statsCapturingWidget struct {
+	WidgetBase
+	onDraw func(Context)
+}
+
+func (w *statsCapturingWidget) Layout(_ Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(100, 50))
+}
+
+func (w *statsCapturingWidget) Draw(ctx Context, _ Canvas) {
+	if w.onDraw != nil {
+		w.onDraw(ctx)
+	}
+}
+
+func (w *statsCapturingWidget) Event(_ Context, _ event.Event) bool { return false }
+
+var _ Widget = (*statsCapturingWidget)(nil)

@@ -65,14 +65,26 @@ func (c *Collector) isWidgetDirty(w widget.Widget) bool {
 	return nr.NeedsRedraw()
 }
 
-// markWidgetDirty adds the widget's bounds to the tracker.
+// markWidgetDirty adds the widget's screen-space bounds to the tracker.
+// ScreenBounds (set during the previous Draw pass via StampScreenOrigin)
+// gives the global position needed for canvas-level dirty clipping.
+// This is safe because layout changes always set needsFullRepaint=true,
+// which bypasses dirty-region clipping entirely — so ScreenBounds from
+// the previous frame is always valid when this code path executes.
+// Follows Qt QWidgetRepaintManager::markDirty pattern: translate
+// widget-local rect to top-level window coordinates at collection time.
 func (c *Collector) markWidgetDirty(w widget.Widget) {
+	type screenBounder interface {
+		ScreenBounds() geometry.Rect
+	}
+	if sb, ok := w.(screenBounder); ok {
+		c.tracker.MarkDirty(sb.ScreenBounds())
+		return
+	}
 	type bounder interface {
 		Bounds() geometry.Rect
 	}
-	b, ok := w.(bounder)
-	if !ok {
-		return
+	if b, ok := w.(bounder); ok {
+		c.tracker.MarkDirty(b.Bounds())
 	}
-	c.tracker.MarkDirty(b.Bounds())
 }

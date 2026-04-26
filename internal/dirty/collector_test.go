@@ -26,6 +26,7 @@ func newTestWidget(x, y, w, h float32) *testWidget {
 	tw.SetVisible(true)
 	tw.SetEnabled(true)
 	tw.SetBounds(geometry.NewRect(x, y, w, h))
+	tw.SetScreenOrigin(geometry.Pt(x, y))
 	return tw
 }
 

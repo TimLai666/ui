@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"image"
 	"sync"
 	"time"
 
@@ -135,6 +136,89 @@ type OverlayManager interface {
 	RemoveOverlay(w Widget)
 }
 
+// DirtyTrackerRef is a minimal interface for querying spatial dirty regions
+// during the draw pass. It is defined in the widget package (rather than
+// importing internal/dirty) so that widgets like RepaintBoundary can check
+// whether their bounds intersect any dirty region without depending on
+// internal packages.
+//
+// The internal dirty.Tracker satisfies this interface through structural
+// typing — no explicit implementation is needed.
+type DirtyTrackerRef interface {
+	// Intersects returns true if the given bounds intersect any dirty region.
+	// Used by RepaintBoundary for O(regions) early exit: when bounds don't
+	// overlap any dirty region, the subtree is guaranteed clean and the
+	// expensive O(tree_depth) NeedsRedrawInTree walk can be skipped.
+	Intersects(bounds geometry.Rect) bool
+}
+
+// DirtyTrackerProvider is an optional interface implemented by Context
+// implementations that provide access to the frame's dirty region tracker.
+//
+// During a draw pass, widgets like RepaintBoundary type-assert the Context
+// to DirtyTrackerProvider to query spatial dirty regions. This uses the
+// established "interface extension via type assertion" pattern (same as
+// DrawStatsProvider, Focusable) to avoid adding methods to the Context
+// interface (which would be a breaking change).
+//
+// Example usage in a widget's Draw method:
+//
+//	if provider, ok := ctx.(widget.DirtyTrackerProvider); ok {
+//	    if tracker := provider.DirtyTracker(); tracker != nil {
+//	        if !tracker.Intersects(rb.Bounds()) {
+//	            // Bounds don't overlap any dirty region — guaranteed clean.
+//	            return
+//	        }
+//	    }
+//	}
+type DirtyTrackerProvider interface {
+	DirtyTracker() DirtyTrackerRef
+}
+
+// ImageCacheRef is a minimal interface for a centralized RepaintBoundary
+// pixel cache with LRU eviction. It is defined in the widget package so that
+// primitives/repaint_boundary.go can use the cache without importing
+// internal/render (which would be an import cycle).
+//
+// The internal render.ImageCache satisfies this interface through structural
+// typing — no explicit implementation is needed.
+type ImageCacheRef interface {
+	// Get retrieves a cached image by key. Returns the image and true if
+	// found, nil and false otherwise. On hit, the entry is promoted in LRU.
+	Get(key uint64) (*image.RGBA, bool)
+
+	// Put stores an image in the cache with the given key and version.
+	// Evicts LRU entries if the memory budget is exceeded.
+	Put(key uint64, img *image.RGBA, version uint64)
+
+	// Invalidate removes a specific entry from the cache by key.
+	Invalidate(key uint64)
+}
+
+// ImageCacheProvider is an optional interface implemented by Context
+// implementations that provide a centralized RepaintBoundary pixel cache.
+//
+// During a draw pass, RepaintBoundary type-asserts the Context to
+// ImageCacheProvider to access the shared LRU cache. This uses the
+// established "interface extension via type assertion" pattern (same as
+// DrawStatsProvider, DirtyTrackerProvider) to avoid adding methods to
+// the Context interface (which would be a breaking change).
+//
+// When no ImageCacheProvider is available (e.g., in headless tests),
+// RepaintBoundary falls back to its local per-widget cache field.
+//
+// Example usage in a widget's Draw method:
+//
+//	if provider, ok := ctx.(widget.ImageCacheProvider); ok {
+//	    if cache := provider.ImageCache(); cache != nil {
+//	        img, ok := cache.Get(rb.cacheKey)
+//	        // ...
+//	    }
+//	}
+type ImageCacheProvider interface {
+	ImageCache() ImageCacheRef
+}
+
 // CursorType represents the type of mouse cursor to display.
 type CursorType uint8
 
@@ -257,6 +341,25 @@ type ContextImpl struct {
 
 	// Signal scheduler
 	scheduler SchedulerRef
+
+	// drawStats collects per-frame rendering statistics during the draw pass.
+	// Set by DrawTree/drawWidgetsInRegion before drawing, read by
+	// RepaintBoundary to increment CachedWidgets on cache hit.
+	drawStats *DrawStats
+
+	// dirtyTracker provides spatial dirty region queries during the draw pass.
+	// Set by Window.DrawTo/drawIncremental before drawing, cleared after.
+	// RepaintBoundary uses this for O(regions) fast path to avoid expensive
+	// O(tree_depth) NeedsRedrawInTree checks when bounds don't intersect
+	// any dirty region.
+	dirtyTracker DirtyTrackerRef
+
+	// imageCache provides a centralized LRU cache for RepaintBoundary pixel
+	// buffers. When set, RepaintBoundary uses this shared cache instead of
+	// per-widget local cache fields. This enables memory budget enforcement
+	// and LRU eviction across all boundaries in a window.
+	// Set by Window during initialization, cleared on close.
+	imageCache ImageCacheRef
 }
 
 // NewContext creates a new ContextImpl with default settings.
@@ -551,6 +654,86 @@ func (c *ContextImpl) SetScheduler(s SchedulerRef) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.scheduler = s
+}
+
+// DrawStats returns the current draw statistics collector for this frame.
+//
+// Returns nil when no draw pass is in progress. During a draw pass (DrawTree
+// or drawWidgetsInRegion), the caller sets a *DrawStats via [SetDrawStats]
+// so that widgets like RepaintBoundary can record cache hits.
+//
+// This method is on the concrete [ContextImpl] type (not the [Context]
+// interface) because adding methods to the interface would be a breaking
+// change for all implementors.
+func (c *ContextImpl) DrawStats() *DrawStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.drawStats
+}
+
+// SetDrawStats sets the draw statistics collector for the current frame.
+//
+// Pass a non-nil *DrawStats before starting a draw pass so that widgets
+// can record metrics. Pass nil after the draw pass to release the reference.
+func (c *ContextImpl) SetDrawStats(stats *DrawStats) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.drawStats = stats
+}
+
+// DirtyTracker returns the dirty region tracker for the current draw pass.
+//
+// Returns nil when no draw pass is in progress or when the tracker was not
+// set (e.g., during full repaints where all widgets are drawn regardless).
+// During an incremental draw pass, the caller sets a DirtyTrackerRef via
+// [SetDirtyTracker] so that widgets like RepaintBoundary can query spatial
+// dirty regions for O(regions) early exit.
+//
+// This method is on the concrete [ContextImpl] type (not the [Context]
+// interface) because adding methods to the interface would be a breaking
+// change for all implementors.
+func (c *ContextImpl) DirtyTracker() DirtyTrackerRef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dirtyTracker
+}
+
+// SetDirtyTracker sets the dirty region tracker for the current draw pass.
+//
+// Pass a non-nil DirtyTrackerRef before starting an incremental draw pass
+// so that widgets can query spatial dirty regions. Pass nil after the draw
+// pass to release the reference.
+func (c *ContextImpl) SetDirtyTracker(tracker DirtyTrackerRef) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dirtyTracker = tracker
+}
+
+// ImageCache returns the centralized RepaintBoundary pixel cache.
+//
+// Returns nil when no cache is configured (e.g., headless testing without
+// a Window). When a Window owns an ImageCache, it calls [SetImageCache]
+// during initialization so that all RepaintBoundary instances share a
+// single LRU cache with memory budget enforcement.
+//
+// This method is on the concrete [ContextImpl] type (not the [Context]
+// interface) because adding methods to the interface would be a breaking
+// change for all implementors.
+func (c *ContextImpl) ImageCache() ImageCacheRef {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.imageCache
+}
+
+// SetImageCache sets the centralized RepaintBoundary pixel cache.
+//
+// Pass a non-nil ImageCacheRef during Window initialization to enable
+// shared caching. Pass nil to disable (RepaintBoundary falls back to
+// per-widget local cache).
+func (c *ContextImpl) SetImageCache(cache ImageCacheRef) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.imageCache = cache
 }
 
 // Verify ContextImpl implements Context.

@@ -50,6 +50,27 @@ type StrokeCircleCall struct {
 	StrokeWidth float32
 }
 
+// StrokeArcCall records a single StrokeArc invocation.
+type StrokeArcCall struct {
+	Center      geometry.Point
+	Radius      float32
+	StartAngle  float64
+	SweepAngle  float64
+	Color       widget.Color
+	StrokeWidth float32
+}
+
+// StrokeArcStyledCall records a single StrokeArcStyled invocation.
+type StrokeArcStyledCall struct {
+	Center      geometry.Point
+	Radius      float32
+	StartAngle  float64
+	SweepAngle  float64
+	Color       widget.Color
+	StrokeWidth float32
+	Cap         widget.LineCap
+}
+
 // DrawLineCall records a single DrawLine invocation.
 type DrawLineCall struct {
 	From        geometry.Point
@@ -114,6 +135,12 @@ type MockCanvas struct {
 	// StrokeCircles records arguments passed to StrokeCircle.
 	StrokeCircles []StrokeCircleCall
 
+	// StrokeArcs records arguments passed to StrokeArc.
+	StrokeArcs []StrokeArcCall
+
+	// StrokeArcStyleds records arguments passed to StrokeArcStyled.
+	StrokeArcStyleds []StrokeArcStyledCall
+
 	// Lines records arguments passed to DrawLine.
 	Lines []DrawLineCall
 
@@ -154,6 +181,11 @@ func (c *MockCanvas) DrawRect(r geometry.Rect, color widget.Color) {
 	c.Rects = append(c.Rects, DrawRectCall{Bounds: r, Color: color})
 }
 
+// FillRectDirect records as DrawRect — mock does not distinguish CPU/GPU path.
+func (c *MockCanvas) FillRectDirect(r geometry.Rect, color widget.Color) {
+	c.Rects = append(c.Rects, DrawRectCall{Bounds: r, Color: color})
+}
+
 // StrokeRect records the rect, color, and stroke width arguments.
 func (c *MockCanvas) StrokeRect(r geometry.Rect, color widget.Color, strokeWidth float32) {
 	c.StrokeRects = append(c.StrokeRects, StrokeRectCall{Bounds: r, Color: color, StrokeWidth: strokeWidth})
@@ -180,6 +212,26 @@ func (c *MockCanvas) DrawCircle(center geometry.Point, radius float32, color wid
 func (c *MockCanvas) StrokeCircle(center geometry.Point, radius float32, color widget.Color, strokeWidth float32) {
 	c.StrokeCircles = append(c.StrokeCircles, StrokeCircleCall{
 		Center: center, Radius: radius, Color: color, StrokeWidth: strokeWidth,
+	})
+}
+
+// StrokeArc records the center, radius, angles, color, and stroke width arguments.
+func (c *MockCanvas) StrokeArc(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32) {
+	c.StrokeArcs = append(c.StrokeArcs, StrokeArcCall{
+		Center: center, Radius: radius,
+		StartAngle: startAngle, SweepAngle: sweepAngle,
+		Color: color, StrokeWidth: strokeWidth,
+	})
+}
+
+// StrokeArcStyled records the center, radius, angles, color, stroke width, and line cap.
+func (c *MockCanvas) StrokeArcStyled(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32, lineCap widget.LineCap) {
+	c.StrokeArcStyleds = append(c.StrokeArcStyleds, StrokeArcStyledCall{
+		Center: center, Radius: radius,
+		StartAngle: startAngle, SweepAngle: sweepAngle,
+		Color: color, StrokeWidth: strokeWidth, Cap: lineCap,
 	})
 }
 
@@ -243,6 +295,11 @@ func (c *MockCanvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
 
+// ClipBounds returns a large default clip rectangle.
+func (c *MockCanvas) ClipBounds() geometry.Rect {
+	return geometry.NewRect(0, 0, 10000, 10000)
+}
+
 // Reset clears all recorded calls, returning the canvas to its initial state.
 func (c *MockCanvas) Reset() {
 	c.Clears = c.Clears[:0]
@@ -252,6 +309,8 @@ func (c *MockCanvas) Reset() {
 	c.StrokeRoundRects = c.StrokeRoundRects[:0]
 	c.Circles = c.Circles[:0]
 	c.StrokeCircles = c.StrokeCircles[:0]
+	c.StrokeArcs = c.StrokeArcs[:0]
+	c.StrokeArcStyleds = c.StrokeArcStyleds[:0]
 	c.Lines = c.Lines[:0]
 	c.Texts = c.Texts[:0]
 	c.Images = c.Images[:0]
@@ -269,9 +328,12 @@ func (c *MockCanvas) Reset() {
 func (c *MockCanvas) TotalDrawCalls() int {
 	return len(c.Clears) + len(c.Rects) + len(c.StrokeRects) +
 		len(c.RoundRects) + len(c.StrokeRoundRects) +
-		len(c.Circles) + len(c.StrokeCircles) +
-		len(c.Lines) + len(c.Texts) + len(c.Images)
+		len(c.Circles) + len(c.StrokeCircles) + len(c.StrokeArcs) +
+		len(c.StrokeArcStyleds) + len(c.Lines) + len(c.Texts) + len(c.Images)
 }
 
-// Compile-time interface check.
-var _ widget.Canvas = (*MockCanvas)(nil)
+// Compile-time interface checks.
+var (
+	_ widget.Canvas     = (*MockCanvas)(nil)
+	_ widget.ArcStroker = (*MockCanvas)(nil)
+)

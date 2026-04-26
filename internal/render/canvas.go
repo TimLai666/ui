@@ -9,6 +9,7 @@ import (
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/svg"
 	"github.com/gogpu/gg/text"
+	"github.com/gogpu/gpucontext"
 	"github.com/gogpu/ui/geometry"
 	"github.com/gogpu/ui/internal/render/fonts"
 	"github.com/gogpu/ui/widget"
@@ -42,7 +43,9 @@ type Canvas struct {
 // The width and height specify the canvas dimensions in logical pixels.
 // The gg.Context should already be created with matching dimensions.
 func NewCanvas(dc *gg.Context, width, height int) *Canvas {
-	dc.SetLCDLayout(gg.LCDLayoutRGB)
+	// NOTE: SetLCDLayout removed — it clears the shared GlyphMask atlas,
+	// breaking GPU text in offscreen contexts (RepaintBoundary).
+	// LCD layout should be set once at app init if needed.
 
 	return &Canvas{
 		dc:             dc,
@@ -97,6 +100,21 @@ func (c *Canvas) DrawRect(r geometry.Rect, color widget.Color) {
 	)
 	c.dc.Fill()
 	c.dc.ClearPath()
+}
+
+// FillRectDirect fills a rectangle directly on the CPU pixmap, bypassing the
+// GPU shape accelerator. This prevents SDF shapes from being queued on the
+// compositor canvas, enabling the non-MSAA blit-only fast path (ADR-016).
+func (c *Canvas) FillRectDirect(r geometry.Rect, color widget.Color) {
+	r = c.applyTransform(r)
+	if !c.isVisible(r) {
+		return
+	}
+	c.dc.FillRectCPU(
+		float64(r.Min.X), float64(r.Min.Y),
+		float64(r.Width()), float64(r.Height()),
+		gg.RGBA{R: float64(color.R), G: float64(color.G), B: float64(color.B), A: float64(color.A)},
+	)
 }
 
 // StrokeRect draws the outline of a rectangle.
@@ -211,6 +229,67 @@ func (c *Canvas) StrokeCircle(center geometry.Point, radius float32, color widge
 	c.dc.DrawCircle(float64(center.X), float64(center.Y), float64(radius))
 	c.dc.Stroke()
 	c.dc.ClearPath()
+}
+
+// StrokeArc draws a circular arc outline from startAngle with the given sweep.
+// Angles are in radians. startAngle=0 is 3 o'clock, positive is counterclockwise.
+// Uses gg.DrawArc which approximates arcs with cubic Bézier curves.
+func (c *Canvas) StrokeArc(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32) {
+	if sweepAngle == 0 {
+		return
+	}
+
+	center = c.applyTransformPoint(center)
+
+	// Visibility check using the arc bounding box (conservative: full circle).
+	bounds := geometry.NewRect(
+		center.X-radius-strokeWidth/2,
+		center.Y-radius-strokeWidth/2,
+		(radius+strokeWidth/2)*2,
+		(radius+strokeWidth/2)*2,
+	)
+	if !c.isVisible(bounds) {
+		return
+	}
+
+	c.dc.SetRGBA(float64(color.R), float64(color.G), float64(color.B), float64(color.A))
+	c.dc.SetLineWidth(float64(strokeWidth))
+	// gg.DrawArc takes absolute start and end angles.
+	c.dc.DrawArc(float64(center.X), float64(center.Y), float64(radius),
+		startAngle, startAngle+sweepAngle)
+	c.dc.Stroke()
+	c.dc.ClearPath()
+}
+
+// StrokeArcStyled draws a circular arc with the specified line cap style.
+func (c *Canvas) StrokeArcStyled(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32, lineCap widget.LineCap) {
+	if sweepAngle == 0 {
+		return
+	}
+
+	center = c.applyTransformPoint(center)
+
+	bounds := geometry.NewRect(
+		center.X-radius-strokeWidth/2,
+		center.Y-radius-strokeWidth/2,
+		(radius+strokeWidth/2)*2,
+		(radius+strokeWidth/2)*2,
+	)
+	if !c.isVisible(bounds) {
+		return
+	}
+
+	c.dc.SetRGBA(float64(color.R), float64(color.G), float64(color.B), float64(color.A))
+	c.dc.SetLineWidth(float64(strokeWidth))
+	oldCap := c.dc.GetStroke().Cap
+	c.dc.SetLineCap(toGGLineCap(lineCap))
+	c.dc.DrawArc(float64(center.X), float64(center.Y), float64(radius),
+		startAngle, startAngle+sweepAngle)
+	c.dc.Stroke()
+	c.dc.ClearPath()
+	c.dc.SetLineCap(oldCap)
 }
 
 // DrawLine draws a line between two points.
@@ -456,6 +535,28 @@ func (c *Canvas) DrawImage(img image.Image, at geometry.Point) {
 	c.dc.DrawImage(buf, float64(at.X), float64(at.Y))
 }
 
+// DrawGPUTexture composites a pre-existing GPU texture view as a textured quad
+// at the given position. The texture is drawn with dimensions width x height.
+//
+// This is the GPU layer compositing path used by RepaintBoundary — zero CPU
+// readback, zero pixel upload. The view must originate from the same GPU device
+// (typically obtained via gg.Context.CreateOffscreenTexture).
+//
+// The position is adjusted by the current transform offset and snapped to the
+// pixel grid, consistent with DrawImage behavior.
+func (c *Canvas) DrawGPUTexture(view gpucontext.TextureView, x, y float64, width, height int) {
+	// Apply canvas transform offset.
+	offset := c.currentOffset
+	x += float64(offset.X)
+	y += float64(offset.Y)
+
+	// Snap to pixel grid.
+	x = math.Round(x)
+	y = math.Round(y)
+
+	c.dc.DrawGPUTexture(view, x, y, width, height)
+}
+
 // snapF rounds a float32 to the nearest integer for pixel-perfect rendering.
 // Sub-pixel coordinates cause blurry lines, asymmetric AA on circles, and
 // fuzzy text. Snapping to the pixel grid eliminates these artifacts.
@@ -543,5 +644,20 @@ func (c *Canvas) RenderSVG(svgXML []byte, bounds geometry.Rect, color widget.Col
 		float64(bounds.Width()), float64(bounds.Height()), svgColor)
 }
 
+// toGGLineCap converts widget.LineCap to gg.LineCap.
+func toGGLineCap(lc widget.LineCap) gg.LineCap {
+	switch lc {
+	case widget.LineCapRound:
+		return gg.LineCapRound
+	case widget.LineCapSquare:
+		return gg.LineCapSquare
+	default:
+		return gg.LineCapButt
+	}
+}
+
 // Verify Canvas implements widget.Canvas.
 var _ widget.Canvas = (*Canvas)(nil)
+
+// Verify Canvas implements widget.ArcStroker.
+var _ widget.ArcStroker = (*Canvas)(nil)

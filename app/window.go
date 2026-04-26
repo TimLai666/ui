@@ -9,7 +9,9 @@ import (
 	ui "github.com/gogpu/ui"
 	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
+	"github.com/gogpu/ui/internal/dirty"
 	ifocus "github.com/gogpu/ui/internal/focus"
+	internalRender "github.com/gogpu/ui/internal/render"
 	"github.com/gogpu/ui/overlay"
 	"github.com/gogpu/ui/state"
 	"github.com/gogpu/ui/theme"
@@ -45,6 +47,10 @@ type Window struct {
 	overlays  *overlay.Stack
 	focusMgr  *ifocus.Manager
 
+	// renderMode controls background ownership and incremental rendering.
+	// See RenderMode documentation for details.
+	renderMode RenderMode
+
 	// animToken is non-nil while continuous rendering is active for animations.
 	animToken animationStopper
 
@@ -62,9 +68,34 @@ type Window struct {
 	// is still valid in the GPU framebuffer.
 	needsRedraw bool
 
+	// needsFullRepaint forces a complete redraw of the entire widget tree
+	// on the next DrawTo call. Set on first frame, resize, theme change,
+	// and SetRoot. When true, DrawTo clears the entire pixmap and draws
+	// all widgets unconditionally instead of using incremental dirty regions.
+	needsFullRepaint bool
+
+	// dirtyTracker collects and merges dirty regions for incremental redraw.
+	// Populated by dirtyCollector before each DrawTo call.
+	dirtyTracker *dirty.Tracker
+
+	// dirtyCollector walks the widget tree to find dirty widgets and records
+	// their bounds in dirtyTracker.
+	dirtyCollector *dirty.Collector
+
 	// lastDrawStats holds per-widget statistics from the most recent
 	// draw traversal. Updated by DrawTo() and the headless draw() path.
 	lastDrawStats widget.DrawStats
+
+	// lastDirtyUnion is the union of all dirty regions from the most recent
+	// dirty-region-only repaint. Zero when the last frame was a full repaint
+	// or frame skip. Used by desktop.Run to pass dirty region to ggcanvas
+	// for partial texture upload.
+	lastDirtyUnion geometry.Rect
+
+	// lastWasFullRepaint indicates that the most recent DrawTo performed a
+	// full repaint (first frame, resize, theme change). When true, the
+	// entire pixmap was modified and needs full GPU upload.
+	lastWasFullRepaint bool
 
 	// hoveredWidget tracks the widget currently under the mouse pointer.
 	// Used for sending MouseEnter/MouseLeave events to individual widgets
@@ -80,6 +111,12 @@ type Window struct {
 
 	// frameCallback, if set, is called after each frame with statistics.
 	frameCallback FrameCallback
+
+	// imageCache is the centralized LRU cache for RepaintBoundary pixel
+	// buffers. All RepaintBoundary instances in this window share this
+	// cache, which enforces a memory budget (default 64MB) and evicts
+	// least-recently-used entries. Phase 5, ADR-004.
+	imageCache *internalRender.ImageCache
 }
 
 // newWindow creates a Window with the given providers.
@@ -88,18 +125,30 @@ func newWindow(
 	pp gpucontext.PlatformProvider,
 	scheduler *state.Scheduler,
 	t *theme.Theme,
+	renderMode RenderMode,
 ) *Window {
 	ctx := widget.NewContext()
 
+	tracker := dirty.NewTracker()
+	imgCache := internalRender.DefaultImageCache()
 	w := &Window{
-		ctx:         ctx,
-		wp:          wp,
-		pp:          pp,
-		scheduler:   scheduler,
-		theme:       t,
-		focusMgr:    ifocus.New(nil),
-		needsLayout: true,
+		ctx:              ctx,
+		wp:               wp,
+		pp:               pp,
+		scheduler:        scheduler,
+		theme:            t,
+		renderMode:       renderMode,
+		focusMgr:         ifocus.New(nil),
+		needsLayout:      true,
+		needsFullRepaint: true,
+		dirtyTracker:     tracker,
+		dirtyCollector:   dirty.NewCollector(tracker),
+		imageCache:       imgCache,
 	}
+
+	// Set centralized image cache on context so RepaintBoundary instances
+	// use the shared LRU cache with memory budget enforcement (Phase 5).
+	ctx.SetImageCache(imgCache)
 
 	// Initialize overlay stack.
 	w.overlays = overlay.NewStack(func() {
@@ -128,6 +177,7 @@ func newWindow(
 	ctx.SetOverlayManager(&windowOverlayManager{window: w})
 
 	// Wire invalidation callback to request redraw.
+	// Invalidate = structural change (layout + redraw of entire tree).
 	ctx.SetOnInvalidate(func() {
 		w.needsLayout = true
 		w.needsRedraw = true
@@ -139,10 +189,23 @@ func newWindow(
 		}
 	})
 
+	// Wire partial invalidation callback.
+	// InvalidateRect = visual change in a specific region (redraw only, no layout).
+	// Used by widgets with local animations (spinner, progress) that don't
+	// affect layout of other widgets.
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {
+		w.needsRedraw = true
+		if w.wp != nil {
+			w.wp.RequestRedraw()
+		}
+	})
+
 	// Wire scheduler to wake render loop when signals change.
+	// Signal dirty = visual content changed (redraw only).
+	// Layout is NOT needed — widget size/position unchanged.
+	// Widgets that need relayout after signal change call ctx.Invalidate().
 	if wp != nil {
 		scheduler.SetOnDirty(func() {
-			w.needsLayout = true
 			w.needsRedraw = true
 			if w.wp != nil {
 				w.wp.RequestRedraw()
@@ -159,14 +222,22 @@ func newWindow(
 // The old root tree is unmounted and the new root tree is mounted,
 // which triggers signal binding setup/teardown via [widget.Lifecycle].
 func (w *Window) SetRoot(root widget.Widget) {
-	// Unmount old tree.
+	// Unmount old tree (triggers RepaintBoundary.Unmount which invalidates
+	// individual cache entries from the shared ImageCache).
 	if w.root != nil {
 		widget.UnmountTree(w.root)
+	}
+
+	// Clear the entire image cache since the old widget tree is gone and
+	// the new tree will have different boundaries with different keys.
+	if w.imageCache != nil {
+		w.imageCache.InvalidateAll()
 	}
 
 	w.root = root
 	w.needsLayout = true
 	w.needsRedraw = true
+	w.needsFullRepaint = true
 
 	// Update focus manager with new root so Tab navigation
 	// traverses the correct widget tree.
@@ -200,6 +271,7 @@ func (w *Window) setTheme(t *theme.Theme) {
 	w.ctx.SetThemeProvider(t)
 	w.needsLayout = true
 	w.needsRedraw = true
+	w.needsFullRepaint = true
 	if w.root != nil {
 		widget.MarkRedrawInTree(w.root)
 	}
@@ -283,6 +355,7 @@ func (w *Window) HandleResize(width, height int) {
 	w.windowSize = geometry.Sz(float32(width), float32(height))
 	w.needsLayout = true
 	w.needsRedraw = true
+	w.needsFullRepaint = true
 	if w.root != nil {
 		widget.MarkRedrawInTree(w.root)
 	}
@@ -370,8 +443,10 @@ func (w *Window) Frame() {
 		if !w.ctx.IsInvalidated() {
 			w.needsLayout = false
 		}
-		// Layout changes require full redraw since positions may have shifted.
+		// Layout changes require full redraw since widget positions may shift,
+		// making the persistent pixmap invalid (stale pixels at old positions).
 		w.needsRedraw = true
+		w.needsFullRepaint = true
 		widget.MarkRedrawInTree(w.root)
 	}
 
@@ -405,7 +480,7 @@ func (w *Window) Frame() {
 	// Start pumper when any animation is active (Invalidate from tickAnimation).
 	// Keep pumper running for a few extra frames to handle animation completion
 	// and prevent start/stop thrashing from periodic data updates.
-	if w.ctx.IsInvalidated() {
+	if w.ctx.IsInvalidated() || !w.ctx.InvalidatedRect().IsEmpty() {
 		w.animIdleFrames = 0
 		if w.animToken == nil && w.wp != nil {
 			w.animToken = newAnimPumper(w.wp)
@@ -465,6 +540,36 @@ func (w *Window) NeedsRedraw() bool {
 // are zero-valued.
 func (w *Window) LastDrawStats() widget.DrawStats {
 	return w.lastDrawStats
+}
+
+// DirtyRegionCount returns the number of dirty regions from the most recent
+// DrawTo call. This reflects the state after Collector.Collect + Tracker.Optimize
+// in the last frame.
+//
+// Returns 0 when the last frame was a full repaint (no incremental regions)
+// or when the frame was skipped (nothing dirty).
+//
+// This is an observability hook for monitoring incremental rendering efficiency.
+func (w *Window) DirtyRegionCount() int {
+	return w.dirtyTracker.RegionCount()
+}
+
+// LastDirtyUnion returns the union of all dirty regions from the most
+// recent dirty-region-only repaint. Returns a zero Rect when the last
+// frame was a full repaint or a frame skip.
+//
+// Used by desktop.Run to pass the dirty region to ggcanvas for partial
+// texture upload — only the modified region is uploaded to the GPU
+// instead of the entire pixmap.
+func (w *Window) LastDirtyUnion() geometry.Rect {
+	return w.lastDirtyUnion
+}
+
+// WasFullRepaint returns true if the most recent DrawTo performed a full
+// repaint (first frame, resize, theme change, SetRoot). When true, the
+// entire pixmap was modified and needs full GPU upload.
+func (w *Window) WasFullRepaint() bool {
+	return w.lastWasFullRepaint
 }
 
 // WindowSize returns the current window size in logical pixels.
@@ -569,55 +674,212 @@ func (w *Window) draw() {
 	widget.ClearRedrawInTree(w.root)
 }
 
+// RenderMode returns the window's current rendering mode.
+func (w *Window) RenderMode() RenderMode {
+	return w.renderMode
+}
+
+// SetRenderMode changes the window's rendering mode at runtime.
+//
+// Switching to [RenderModeFrameworkManaged] enables frame skip and
+// dirty-region rendering. Switching to [RenderModeHostManaged] restores
+// full-tree draw every frame.
+//
+// A full repaint is forced after the switch to ensure the persistent
+// pixmap is populated correctly in the new mode.
+func (w *Window) SetRenderMode(mode RenderMode) {
+	w.renderMode = mode
+	w.needsFullRepaint = true
+	if w.root != nil {
+		widget.MarkRedrawInTree(w.root)
+	}
+}
+
 // DrawTo performs the draw pass using the provided canvas.
 //
-// This method is called by the host application when it has a canvas
-// ready for drawing. It draws the root widget tree and then all overlays
-// on top.
+// Behavior depends on the [RenderMode]:
 //
-// With retained-mode rendering, DrawTo checks whether any widget in the
-// tree actually needs re-rendering. If not, it returns false to indicate
-// that the host application can skip uploading the canvas to the GPU
-// (the previous frame's output is still valid).
+// In RenderModeHostManaged (default):
+//   - The host draws background before calling DrawTo.
+//   - DrawTo does NOT call canvas.Clear (host already painted background).
+//   - DrawTo always draws the full widget tree and returns true.
+//   - dirty.Tracker is populated for RepaintBoundary Intersects fast path.
 //
-// Returns true if rendering was performed, false if the draw was skipped
-// because no widgets changed since the last draw.
+// In RenderModeFrameworkManaged:
+//   - Level 1 (Frame Skip): If nothing changed since the last draw,
+//     returns false immediately — zero CPU, zero GPU upload.
+//   - Level 2 (Dirty Region Redraw): Only dirty regions are redrawn on
+//     the persistent pixmap. Clean regions retain previous pixels
+//     (Qt QBackingStore pattern).
+//   - Full Repaint: On first frame, resize, theme change, or SetRoot,
+//     the entire pixmap is cleared and redrawn.
+//
+// Returns true if rendering was performed, false if the draw was skipped.
 func (w *Window) DrawTo(canvas widget.Canvas) bool {
 	if w.root == nil || canvas == nil {
 		return false
 	}
 
-	// Collect dirty/clean statistics before drawing.
-	// In Sub-Phase 1 we always draw (existing widgets don't self-dirty on
-	// event-driven state changes yet). The stats provide observability for
-	// monitoring and for validating the dirty-tracking system.
-	//
-	// Sub-Phase 2 will add per-widget self-dirtying + pixel caching, at which
-	// point clean subtrees can be composited from cache instead of re-drawn.
-	treeClean := !w.needsRedraw && !widget.NeedsRedrawInTree(w.root)
+	// Collect dirty regions (always — for RepaintBoundary Intersects fast path).
+	w.dirtyTracker.Reset()
+	w.dirtyCollector.Collect(w.root)
+	w.dirtyTracker.Optimize()
 
-	// Draw the widget tree, collecting per-widget statistics.
-	w.lastDrawStats = widget.DrawTree(w.root, w.ctx, canvas)
+	var drawn bool
+	switch w.renderMode {
+	case RenderModeFrameworkManaged:
+		drawn = w.drawFrameworkManaged(canvas)
+	default:
+		drawn = w.drawHostManaged(canvas)
+	}
 
-	// Draw overlays on top (bottom to top).
-	w.overlays.Draw(w.ctx, canvas)
-
-	// Clear all redraw flags in the tree after successful draw.
-	widget.ClearRedrawInTree(w.root)
-	w.needsRedraw = false
-
-	if treeClean {
-		ui.Logger().LogAttrs(context.Background(), slog.LevelDebug, "DrawTo: tree was clean (could skip in Phase 2)")
-	} else {
-		ui.Logger().LogAttrs(context.Background(), slog.LevelDebug, "DrawTo: rendered",
+	if drawn {
+		ui.Logger().LogAttrs(context.Background(), slog.LevelDebug,
+			"DrawTo: rendered",
 			slog.Int("dirty", w.lastDrawStats.DirtyWidgets),
 			slog.Int("clean", w.lastDrawStats.CleanWidgets),
 			slog.Int("cached", w.lastDrawStats.CachedWidgets),
 			slog.Int("total", w.lastDrawStats.TotalWidgets),
+			slog.Int("dirtyRegions", w.dirtyTracker.RegionCount()),
+			slog.String("mode", w.renderMode.String()),
 		)
 	}
 
-	return !treeClean
+	return drawn
+}
+
+// drawHostManaged draws the full widget tree without clearing the canvas.
+// The host draws background before calling DrawTo.
+//
+// Dirty-region optimization is handled by RepaintBoundary: clean boundaries
+// serve cached GPU textured quads (cheap blit), dirty boundaries re-render
+// their subtree. The dirty.Tracker feeds RepaintBoundary.Intersects for
+// O(regions) fast-path cache validation instead of O(tree_depth) walks.
+//
+// Canvas-level dirty clip is NOT used here because the host draws full
+// background every frame — clipping would prevent clean widgets from
+// being redrawn over the fresh background.
+func (w *Window) drawHostManaged(canvas widget.Canvas) bool {
+	w.ctx.SetDirtyTracker(w.dirtyTracker)
+	defer w.ctx.SetDirtyTracker(nil)
+
+	w.lastDrawStats = widget.DrawTree(w.root, w.ctx, canvas)
+
+	w.overlays.Draw(w.ctx, canvas)
+	widget.ClearRedrawInTree(w.root)
+	w.needsRedraw = false
+	w.needsFullRepaint = false
+	return true
+}
+
+// drawFrameworkManaged implements the three-level incremental rendering
+// pipeline (ADR-004). The framework owns the pixmap lifecycle and draws
+// the theme background when needed.
+//
+// Level 1 (frame skip): if nothing changed and the persistent pixmap is
+// valid, returns false immediately -- zero CPU, zero GPU upload.
+//
+// Level 2 (dirty-region-only repaint): only the regions that changed are
+// cleared and redrawn on the persistent pixmap. Clean regions retain the
+// previous frame's pixels (Qt QBackingStore / Win32 partial-paint pattern).
+//
+// Full repaint: on first frame, resize, theme change, SetRoot, layout
+// change, or when too many dirty regions accumulate (>16), the entire
+// pixmap is cleared and redrawn.
+func (w *Window) drawFrameworkManaged(canvas widget.Canvas) bool {
+	hasTreeDirty := !w.dirtyTracker.IsEmpty() || w.needsRedraw || widget.NeedsRedrawInTree(w.root)
+
+	// Level 1: Frame skip — nothing changed and pixmap is persistent.
+	if !hasTreeDirty && !w.needsFullRepaint {
+		return false
+	}
+
+	// Clear redraw flags BEFORE draw so flags set during Draw (e.g.,
+	// spinner's SetNeedsRedraw(true)) survive until the next frame's
+	// collector run. If cleared AFTER draw, the collector on the next
+	// frame sees NeedsRedraw=false and misses the widget.
+	widget.ClearRedrawInTree(w.root)
+
+	w.ctx.SetDirtyTracker(w.dirtyTracker)
+	defer w.ctx.SetDirtyTracker(nil)
+
+	// Reset dirty union from previous frame.
+	w.lastDirtyUnion = geometry.Rect{}
+	w.lastWasFullRepaint = false
+
+	// Full repaint on first frame, resize, theme change, SetRoot,
+	// layout change, or when too many dirty regions accumulate.
+	if w.needsFullRepaint || w.dirtyTracker.NeedsFullRepaint() {
+		w.drawFullRepaint(canvas)
+	} else {
+		// Level 2: Dirty-region-only repaint.
+		w.drawDirtyRegions(canvas)
+	}
+
+	w.overlays.Draw(w.ctx, canvas)
+	w.needsRedraw = false
+	w.needsFullRepaint = false
+	return true
+}
+
+// drawFullRepaint clears the entire canvas and redraws the full widget tree.
+// Used in FrameworkManaged mode on first frame, resize, theme change, and SetRoot.
+func (w *Window) drawFullRepaint(canvas widget.Canvas) {
+	bg := w.themeBackground()
+	canvas.Clear(bg)
+
+	w.lastDrawStats = widget.DrawTree(w.root, w.ctx, canvas)
+	w.lastWasFullRepaint = true
+}
+
+// drawDirtyRegions clears and redraws only the dirty regions.
+// Clean regions retain previous frame's pixels (persistent pixmap).
+// Follows the Qt QBackingStore partial-paint pattern.
+//
+// The algorithm:
+//  1. Compute the union of all dirty regions for a single clip rect.
+//  2. Clear each dirty region with the theme background.
+//  3. Clip to the dirty union and draw the full tree. Widgets outside
+//     the clip early-exit from visibility checks, so only widgets
+//     overlapping dirty regions actually render.
+func (w *Window) drawDirtyRegions(canvas widget.Canvas) {
+	bg := w.themeBackground()
+	regions := w.dirtyTracker.DirtyRegions()
+	if len(regions) == 0 {
+		return
+	}
+
+	// Compute union of all dirty regions for a single clip.
+	union := regions[0].Bounds
+	for i := 1; i < len(regions); i++ {
+		union = union.Union(regions[i].Bounds)
+	}
+
+	// Clear dirty regions with theme background using CPU-only fill.
+	// DrawRect would trigger the GPU SDF accelerator, queuing SDF shapes
+	// on the compositor canvas and blocking the non-MSAA blit-only fast
+	// path (ADR-016). FillRectDirect writes directly to the CPU pixmap.
+	for _, region := range regions {
+		canvas.FillRectDirect(region.Bounds, bg)
+	}
+
+	// Clip to dirty union and draw tree.
+	// Widgets outside the clip early-exit from isVisible checks,
+	// so only widgets overlapping dirty regions actually render.
+	canvas.PushClip(union)
+	w.lastDrawStats = widget.DrawTree(w.root, w.ctx, canvas)
+	canvas.PopClip()
+
+	w.lastDirtyUnion = union
+}
+
+// themeBackground returns the window background color from the current theme.
+// Falls back to white if no theme is configured.
+func (w *Window) themeBackground() widget.Color {
+	if w.theme != nil {
+		return w.theme.Colors.Background
+	}
+	return widget.ColorWhite
 }
 
 // syncCursor forwards the cursor state to the platform provider.

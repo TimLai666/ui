@@ -596,8 +596,19 @@ func (b *BoxWidget) Draw(ctx widget.Context, canvas widget.Canvas) {
 	}
 
 	// Draw children with transform offset for this box's position.
+	// Viewport culling: skip Draw for children outside the clip region.
+	// This prevents offscreen widgets (e.g., spinner scrolled out of
+	// ScrollView) from ticking animations and triggering redraws.
 	canvas.PushTransform(bounds.Min)
+	clipBounds := canvas.ClipBounds()
+	offset := canvas.TransformOffset()
 	for _, child := range b.children {
+		if bg, ok := child.(interface{ Bounds() geometry.Rect }); ok {
+			childRect := bg.Bounds().Translate(offset)
+			if !clipBounds.Intersects(childRect) {
+				continue
+			}
+		}
 		widget.StampScreenOrigin(child, canvas)
 		child.Draw(ctx, canvas)
 	}

@@ -379,7 +379,7 @@ func TestWindow_FrameReflush(t *testing.T) {
 	})
 
 	wp := &mockWindowProvider{width: 400, height: 300, scale: 1.0}
-	w := newWindow(wp, nil, sched, theme.DefaultLight())
+	w := newWindow(wp, nil, sched, theme.DefaultLight(), RenderModeHostManaged)
 	w.SetRoot(root)
 
 	sched.MarkDirty(root)
@@ -432,13 +432,16 @@ func (w *cursorSettingOnLayoutWidget) Event(_ widget.Context, _ event.Event) boo
 // mockCanvas implements widget.Canvas for testing.
 type mockCanvas struct{}
 
-func (m *mockCanvas) Clear(widget.Color)                                                            {}
-func (m *mockCanvas) DrawRect(geometry.Rect, widget.Color)                                          {}
-func (m *mockCanvas) StrokeRect(geometry.Rect, widget.Color, float32)                               {}
-func (m *mockCanvas) DrawRoundRect(geometry.Rect, widget.Color, float32)                            {}
-func (m *mockCanvas) StrokeRoundRect(geometry.Rect, widget.Color, float32, float32)                 {}
-func (m *mockCanvas) DrawCircle(geometry.Point, float32, widget.Color)                              {}
-func (m *mockCanvas) StrokeCircle(geometry.Point, float32, widget.Color, float32)                   {}
+func (m *mockCanvas) Clear(widget.Color)                                            {}
+func (m *mockCanvas) DrawRect(geometry.Rect, widget.Color)                          {}
+func (m *mockCanvas) FillRectDirect(geometry.Rect, widget.Color)                    {}
+func (m *mockCanvas) StrokeRect(geometry.Rect, widget.Color, float32)               {}
+func (m *mockCanvas) DrawRoundRect(geometry.Rect, widget.Color, float32)            {}
+func (m *mockCanvas) StrokeRoundRect(geometry.Rect, widget.Color, float32, float32) {}
+func (m *mockCanvas) DrawCircle(geometry.Point, float32, widget.Color)              {}
+func (m *mockCanvas) StrokeCircle(geometry.Point, float32, widget.Color, float32)   {}
+func (m *mockCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ widget.Color, _ float32) {
+}
 func (m *mockCanvas) DrawLine(geometry.Point, geometry.Point, widget.Color, float32)                {}
 func (m *mockCanvas) DrawText(string, geometry.Rect, float32, widget.Color, bool, widget.TextAlign) {}
 
@@ -452,6 +455,7 @@ func (m *mockCanvas) PopClip()                                     {}
 func (m *mockCanvas) PushTransform(geometry.Point)                 {}
 func (m *mockCanvas) PopTransform()                                {}
 func (m *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (m *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 
 // --- Retained-mode rendering tests ---
 
@@ -463,7 +467,7 @@ func TestWindow_DrawTo_ReportsCleanTree(t *testing.T) {
 
 	canvas := &mockCanvas{}
 
-	// First draw: all widgets are dirty (just mounted).
+	// First draw: all widgets are dirty (just mounted, needsFullRepaint=true).
 	drawn := w.DrawTo(canvas)
 	if !drawn {
 		t.Error("first DrawTo should report dirty (all widgets dirty after mount)")
@@ -472,15 +476,11 @@ func TestWindow_DrawTo_ReportsCleanTree(t *testing.T) {
 	// Reset tracking.
 	root.drawCalled = false
 
-	// Second draw: nothing changed. In Sub-Phase 1, DrawTo still draws
-	// (existing widgets don't self-dirty on event state changes yet),
-	// but returns false to indicate the tree was clean.
+	// Second draw: nothing changed but DrawTo still draws (host may have
+	// cleared pixmap). Returns true because a valid frame was produced.
 	drawn = w.DrawTo(canvas)
-	if drawn {
-		t.Error("second DrawTo should report clean (no widgets dirty)")
-	}
-	if !root.drawCalled {
-		t.Error("root Draw should still be called (Sub-Phase 1 always draws)")
+	if !drawn {
+		t.Error("second DrawTo should return true (always draws)")
 	}
 }
 
@@ -679,7 +679,7 @@ func TestWindow_DrawTo_ReturnsDrawStats(t *testing.T) {
 	}
 }
 
-func TestWindow_DrawTo_SkippedFrameHasZeroStats(t *testing.T) {
+func TestWindow_DrawTo_CleanTreeStillDraws(t *testing.T) {
 	a := New()
 	w := a.Window()
 	root := newMockWidget()
@@ -693,14 +693,14 @@ func TestWindow_DrawTo_SkippedFrameHasZeroStats(t *testing.T) {
 		t.Error("first draw should report 1 drawn widget")
 	}
 
-	// Second draw is skipped (nothing dirty).
+	// Second draw: tree is clean but DrawTo still draws (full repaint)
+	// because the host may have cleared the pixmap before calling DrawTo.
 	drawn := w.DrawTo(canvas)
-	if drawn {
-		t.Error("second draw should be skipped")
+	if !drawn {
+		t.Error("DrawTo should always draw (host may have cleared pixmap)")
 	}
-	// Stats from last actual draw are retained.
 	if w.LastDrawStats().DrawnWidgets != 1 {
-		t.Error("stats should be retained from last actual draw")
+		t.Error("clean-tree full repaint should still draw 1 widget")
 	}
 }
 
@@ -753,6 +753,93 @@ func TestWindow_LastDrawStats_NoRoot(t *testing.T) {
 		t.Errorf("TotalWidgets = %d, want 0 (no root)", stats.TotalWidgets)
 	}
 }
+
+// --- DirtyTracker wiring tests (Phase 4, ADR-004) ---
+
+func TestWindow_DrawTo_SetsDirtyTrackerOnContext(t *testing.T) {
+	// During incremental draw, Window should set the dirty tracker on
+	// the context so RepaintBoundary can use the fast path.
+	a := New()
+	w := a.Window()
+
+	// Track whether DirtyTracker was set during draw by using a widget
+	// that inspects the context.
+	trackerSeen := false
+	spy := &contextSpyWidget{
+		onDraw: func(ctx widget.Context) {
+			if provider, ok := ctx.(widget.DirtyTrackerProvider); ok {
+				if provider.DirtyTracker() != nil {
+					trackerSeen = true
+				}
+			}
+		},
+	}
+	spy.SetVisible(true)
+	spy.SetEnabled(true)
+	spy.SetNeedsRedraw(true)
+	w.SetRoot(spy)
+
+	canvas := &mockCanvas{}
+
+	// First draw is a full repaint (needsFullRepaint=true).
+	// Full repaint does NOT set dirty tracker (by design — all widgets
+	// are drawn unconditionally). The tracker may or may not be visible
+	// depending on the draw path. Reset spy state.
+	w.DrawTo(canvas)
+	trackerSeen = false
+
+	// Mark widget dirty so next DrawTo triggers incremental path.
+	spy.SetNeedsRedraw(true)
+	w.needsRedraw = true
+
+	// Layout root to give it non-zero bounds (needed for collector).
+	spy.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	w.DrawTo(canvas)
+	if !trackerSeen {
+		t.Error("DirtyTracker should be set on context during incremental draw")
+	}
+
+	// After DrawTo, the tracker should be cleared.
+	if w.ctx.DirtyTracker() != nil {
+		t.Error("DirtyTracker should be nil after DrawTo completes")
+	}
+}
+
+func TestWindow_DrawTo_DirtyTrackerClearedAfterDraw(t *testing.T) {
+	a := New()
+	w := a.Window()
+	root := newMockWidget()
+	w.SetRoot(root)
+
+	canvas := &mockCanvas{}
+	w.DrawTo(canvas)
+
+	// After any DrawTo, the dirty tracker reference on context should be nil.
+	if w.ctx.DirtyTracker() != nil {
+		t.Error("DirtyTracker should be nil after DrawTo completes")
+	}
+}
+
+// contextSpyWidget inspects the context during Draw.
+type contextSpyWidget struct {
+	widget.WidgetBase
+	onDraw func(ctx widget.Context)
+}
+
+func (w *contextSpyWidget) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(100, 50))
+}
+
+func (w *contextSpyWidget) Draw(ctx widget.Context, _ widget.Canvas) {
+	if w.onDraw != nil {
+		w.onDraw(ctx)
+	}
+}
+
+func (w *contextSpyWidget) Event(_ widget.Context, _ event.Event) bool { return false }
+
+var _ widget.Widget = (*contextSpyWidget)(nil)
 
 // --- Focus management tests ---
 

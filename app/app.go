@@ -25,10 +25,11 @@ type Option func(*appConfig)
 
 // appConfig holds configuration gathered from Option functions.
 type appConfig struct {
-	wp    gpucontext.WindowProvider
-	pp    gpucontext.PlatformProvider
-	es    gpucontext.EventSource
-	theme *theme.Theme
+	wp         gpucontext.WindowProvider
+	pp         gpucontext.PlatformProvider
+	es         gpucontext.EventSource
+	theme      *theme.Theme
+	renderMode RenderMode
 }
 
 // WithWindowProvider sets the window provider for the App.
@@ -72,6 +73,23 @@ func WithTheme(t *theme.Theme) Option {
 	}
 }
 
+// WithRenderMode sets the rendering mode for the App's window.
+//
+// RenderModeHostManaged (default): the host application draws the background
+// before calling DrawTo. DrawTo does not call canvas.Clear and always draws
+// the full widget tree.
+//
+// RenderModeFrameworkManaged: the framework owns the pixmap and draws the
+// theme background. Enables frame skip (DrawTo returns false when idle)
+// and incremental dirty-region rendering.
+//
+// See [RenderMode] for detailed documentation of each mode.
+func WithRenderMode(mode RenderMode) Option {
+	return func(c *appConfig) {
+		c.renderMode = mode
+	}
+}
+
 // New creates a new App with the given options.
 //
 // When no options are provided, the App operates in headless mode with
@@ -108,7 +126,7 @@ func New(opts ...Option) *App {
 	})
 
 	// Create the window.
-	a.window = newWindow(cfg.wp, cfg.pp, a.scheduler, t)
+	a.window = newWindow(cfg.wp, cfg.pp, a.scheduler, t, cfg.renderMode)
 
 	// Attach event bridge if event source is provided.
 	if cfg.es != nil {

@@ -103,6 +103,23 @@ func TestCanvas_StrokeCircle(t *testing.T) {
 	canvas.StrokeCircle(center, 20, widget.ColorBlack, 2.0)
 }
 
+func TestCanvas_StrokeArc(t *testing.T) {
+	canvas := newTestCanvas(100, 100)
+
+	center := geometry.Pt(50, 50)
+	// Quarter arc (90 degrees).
+	canvas.StrokeArc(center, 30, 0, 1.5708, widget.ColorRed, 2.0)
+
+	// Full circle arc (360 degrees).
+	canvas.StrokeArc(center, 20, 0, 6.2832, widget.ColorBlue, 1.0)
+
+	// Zero sweep -- should be a no-op.
+	canvas.StrokeArc(center, 20, 0, 0, widget.ColorGreen, 1.0)
+
+	// Arc outside visible area -- should be culled.
+	canvas.StrokeArc(geometry.Pt(500, 500), 10, 0, 3.14, widget.ColorBlack, 1.0)
+}
+
 func TestCanvas_DrawLine(t *testing.T) {
 	canvas := newTestCanvas(100, 100)
 

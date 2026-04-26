@@ -91,6 +91,12 @@ func (c *SceneCanvas) DrawRect(r geometry.Rect, color widget.Color) {
 	c.sc.Fill(scene.FillNonZero, scene.IdentityAffine(), brush, shape)
 }
 
+// FillRectDirect fills a rectangle via the scene graph. SceneCanvas does not
+// use the GPU SDF accelerator, so this is equivalent to DrawRect.
+func (c *SceneCanvas) FillRectDirect(r geometry.Rect, color widget.Color) {
+	c.DrawRect(r, color)
+}
+
 // StrokeRect draws the outline of a rectangle.
 func (c *SceneCanvas) StrokeRect(r geometry.Rect, color widget.Color, strokeWidth float32) {
 	r = c.applyTransform(r)
@@ -178,6 +184,87 @@ func (c *SceneCanvas) StrokeCircle(center geometry.Point, radius float32, color 
 		Width:      strokeWidth,
 		MiterLimit: 10.0,
 		Cap:        scene.LineCapButt,
+		Join:       scene.LineJoinMiter,
+	}
+	c.sc.Stroke(style, scene.IdentityAffine(), brush, shape)
+}
+
+// StrokeArc draws a circular arc outline from startAngle with the given sweep.
+// Uses scene.Path.Arc to record the arc as cubic Bézier curves into the scene.
+func (c *SceneCanvas) StrokeArc(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32) {
+	if sweepAngle == 0 {
+		return
+	}
+
+	center = c.applyTransformPoint(center)
+
+	// Visibility check (conservative: full circle bounding box).
+	bounds := geometry.NewRect(
+		center.X-radius-strokeWidth/2,
+		center.Y-radius-strokeWidth/2,
+		(radius+strokeWidth/2)*2,
+		(radius+strokeWidth/2)*2,
+	)
+	if !c.isVisible(bounds) {
+		return
+	}
+
+	// Build a scene path for the arc.
+	endAngle := startAngle + sweepAngle
+	sweepClockwise := sweepAngle > 0
+	path := scene.NewPath().Arc(
+		center.X, center.Y,
+		radius, radius,
+		float32(startAngle), float32(endAngle),
+		sweepClockwise,
+	)
+
+	brush := scene.SolidBrush(ToGGColor(color))
+	shape := scene.NewPathShape(path)
+	style := &scene.StrokeStyle{
+		Width:      strokeWidth,
+		MiterLimit: 10.0,
+		Cap:        scene.LineCapButt,
+		Join:       scene.LineJoinMiter,
+	}
+	c.sc.Stroke(style, scene.IdentityAffine(), brush, shape)
+}
+
+// StrokeArcStyled draws a circular arc with the specified line cap style.
+func (c *SceneCanvas) StrokeArcStyled(center geometry.Point, radius float32,
+	startAngle, sweepAngle float64, color widget.Color, strokeWidth float32, lineCap widget.LineCap) {
+	if sweepAngle == 0 {
+		return
+	}
+
+	center = c.applyTransformPoint(center)
+
+	bounds := geometry.NewRect(
+		center.X-radius-strokeWidth/2,
+		center.Y-radius-strokeWidth/2,
+		(radius+strokeWidth/2)*2,
+		(radius+strokeWidth/2)*2,
+	)
+	if !c.isVisible(bounds) {
+		return
+	}
+
+	endAngle := startAngle + sweepAngle
+	sweepClockwise := sweepAngle > 0
+	path := scene.NewPath().Arc(
+		center.X, center.Y,
+		radius, radius,
+		float32(startAngle), float32(endAngle),
+		sweepClockwise,
+	)
+
+	brush := scene.SolidBrush(ToGGColor(color))
+	shape := scene.NewPathShape(path)
+	style := &scene.StrokeStyle{
+		Width:      strokeWidth,
+		MiterLimit: 10.0,
+		Cap:        toSceneLineCap(lineCap),
 		Join:       scene.LineJoinMiter,
 	}
 	c.sc.Stroke(style, scene.IdentityAffine(), brush, shape)
@@ -376,6 +463,11 @@ func (c *SceneCanvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
 
+// ClipBounds returns the current clip rectangle.
+func (c *SceneCanvas) ClipBounds() geometry.Rect {
+	return c.currentClip
+}
+
 // --- Internal helpers ---
 
 // applyTransform applies the current transform offset to a rectangle
@@ -456,5 +548,20 @@ func (c *SceneCanvas) FillSVGPath(svgData string, viewBox float32, bounds geomet
 	_ = dc.Close()
 }
 
+// toSceneLineCap converts widget.LineCap to scene.LineCap.
+func toSceneLineCap(lc widget.LineCap) scene.LineCap {
+	switch lc {
+	case widget.LineCapRound:
+		return scene.LineCapRound
+	case widget.LineCapSquare:
+		return scene.LineCapSquare
+	default:
+		return scene.LineCapButt
+	}
+}
+
 // Verify SceneCanvas implements widget.Canvas.
 var _ widget.Canvas = (*SceneCanvas)(nil)
+
+// Verify SceneCanvas implements widget.ArcStroker.
+var _ widget.ArcStroker = (*SceneCanvas)(nil)

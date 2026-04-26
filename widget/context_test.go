@@ -552,6 +552,145 @@ func TestContextImpl_Interface(t *testing.T) {
 	var _ Context = (*ContextImpl)(nil)
 }
 
+// --- DrawStats tests ---
+
+func TestContextImpl_DrawStats_NilByDefault(t *testing.T) {
+	ctx := NewContext()
+	if ctx.DrawStats() != nil {
+		t.Error("DrawStats() should be nil by default")
+	}
+}
+
+func TestContextImpl_DrawStats_SetAndGet(t *testing.T) {
+	ctx := NewContext()
+	var stats DrawStats
+	stats.TotalWidgets = 42
+
+	ctx.SetDrawStats(&stats)
+	got := ctx.DrawStats()
+	if got == nil {
+		t.Fatal("DrawStats() returned nil after SetDrawStats")
+	}
+	if got.TotalWidgets != 42 {
+		t.Errorf("DrawStats().TotalWidgets = %d, want 42", got.TotalWidgets)
+	}
+
+	// Clear.
+	ctx.SetDrawStats(nil)
+	if ctx.DrawStats() != nil {
+		t.Error("DrawStats() should be nil after SetDrawStats(nil)")
+	}
+}
+
+func TestContextImpl_DrawStats_ImplementsDrawStatsProvider(t *testing.T) {
+	ctx := NewContext()
+	var provider DrawStatsProvider = ctx
+	_ = provider.DrawStats() // Compile-time + runtime check.
+}
+
+func TestContextImpl_DrawStats_ThreadSafety(t *testing.T) {
+	ctx := NewContext()
+	var stats DrawStats
+
+	var wg sync.WaitGroup
+	const numGoroutines = 100
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				ctx.SetDrawStats(&stats)
+			} else {
+				ctx.SetDrawStats(nil)
+			}
+			_ = ctx.DrawStats()
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// --- DirtyTracker Tests ---
+
+// mockDirtyTracker implements DirtyTrackerRef for testing.
+type mockDirtyTracker struct {
+	intersectsResult bool
+	intersectsCalled bool
+	lastBounds       geometry.Rect
+}
+
+func (m *mockDirtyTracker) Intersects(bounds geometry.Rect) bool {
+	m.intersectsCalled = true
+	m.lastBounds = bounds
+	return m.intersectsResult
+}
+
+func TestContextImpl_DirtyTracker_NilByDefault(t *testing.T) {
+	ctx := NewContext()
+	if ctx.DirtyTracker() != nil {
+		t.Error("DirtyTracker() should be nil by default")
+	}
+}
+
+func TestContextImpl_DirtyTracker_SetAndGet(t *testing.T) {
+	ctx := NewContext()
+	tracker := &mockDirtyTracker{intersectsResult: true}
+
+	ctx.SetDirtyTracker(tracker)
+	got := ctx.DirtyTracker()
+	if got == nil {
+		t.Fatal("DirtyTracker() returned nil after SetDirtyTracker")
+	}
+	if got != tracker {
+		t.Error("DirtyTracker() returned different tracker than was set")
+	}
+
+	// Verify it works through the interface.
+	result := got.Intersects(geometry.NewRect(0, 0, 100, 100))
+	if !result {
+		t.Error("Intersects should return true (mocked)")
+	}
+	if !tracker.intersectsCalled {
+		t.Error("Intersects was not called on the underlying tracker")
+	}
+
+	// Clear.
+	ctx.SetDirtyTracker(nil)
+	if ctx.DirtyTracker() != nil {
+		t.Error("DirtyTracker() should be nil after SetDirtyTracker(nil)")
+	}
+}
+
+func TestContextImpl_DirtyTracker_ImplementsDirtyTrackerProvider(t *testing.T) {
+	ctx := NewContext()
+	var provider DirtyTrackerProvider = ctx
+	_ = provider.DirtyTracker() // Compile-time + runtime check.
+}
+
+func TestContextImpl_DirtyTracker_ThreadSafety(t *testing.T) {
+	ctx := NewContext()
+	tracker := &mockDirtyTracker{}
+
+	var wg sync.WaitGroup
+	const numGoroutines = 100
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				ctx.SetDirtyTracker(tracker)
+			} else {
+				ctx.SetDirtyTracker(nil)
+			}
+			_ = ctx.DirtyTracker()
+		}(i)
+	}
+
+	wg.Wait()
+}
+
 func BenchmarkContextImpl_IsFocused(b *testing.B) {
 	ctx := NewContext()
 	widget := newMockWidget()

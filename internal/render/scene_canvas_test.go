@@ -130,6 +130,36 @@ func TestSceneCanvas_StrokeCircle(t *testing.T) {
 	}
 }
 
+// --- StrokeArc ---
+
+func TestSceneCanvas_StrokeArc(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.StrokeArc(geometry.Pt(100, 100), 40, 0, 1.5708, widget.ColorRed, 3)
+	v1 := sc.Version()
+
+	if v1 <= v0 {
+		t.Error("scene version should increment after StrokeArc")
+	}
+}
+
+func TestSceneCanvas_StrokeArc_ZeroSweep(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.StrokeArc(geometry.Pt(100, 100), 40, 0, 0, widget.ColorRed, 3)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("zero sweep StrokeArc should not increment scene version")
+	}
+}
+
 // --- DrawLine ---
 
 func TestSceneCanvas_DrawLine(t *testing.T) {

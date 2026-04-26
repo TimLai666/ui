@@ -109,6 +109,33 @@ func TestMockCanvas_RecordsStrokeCircle(t *testing.T) {
 	}
 }
 
+func TestMockCanvas_RecordsStrokeArc(t *testing.T) {
+	c := &uitest.MockCanvas{}
+	center := geometry.Pt(50, 50)
+
+	c.StrokeArc(center, 25.0, -1.5708, 3.1416, widget.ColorRed, 2.0)
+
+	if len(c.StrokeArcs) != 1 {
+		t.Fatalf("StrokeArcs count = %d, want 1", len(c.StrokeArcs))
+	}
+	arc := c.StrokeArcs[0]
+	if arc.Center != center {
+		t.Errorf("Center = %v, want %v", arc.Center, center)
+	}
+	if arc.Radius != 25.0 {
+		t.Errorf("Radius = %f, want 25.0", arc.Radius)
+	}
+	if arc.StartAngle != -1.5708 {
+		t.Errorf("StartAngle = %f, want -1.5708", arc.StartAngle)
+	}
+	if arc.SweepAngle != 3.1416 {
+		t.Errorf("SweepAngle = %f, want 3.1416", arc.SweepAngle)
+	}
+	if arc.StrokeWidth != 2.0 {
+		t.Errorf("StrokeWidth = %f, want 2.0", arc.StrokeWidth)
+	}
+}
+
 func TestMockCanvas_RecordsDrawLine(t *testing.T) {
 	c := &uitest.MockCanvas{}
 	from := geometry.Pt(0, 0)

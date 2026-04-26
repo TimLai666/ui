@@ -69,7 +69,8 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 
 	// Layout and draw each visible item.
 	for i := start; i < end; i++ {
-		w := lv.cache.widgetAt(i - start)
+		offset := i - start
+		w := lv.cache.widgetAt(offset)
 		if w == nil {
 			continue
 		}
@@ -113,8 +114,15 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 			lv.painter.PaintSelection(canvas, ips)
 		}
 
-		// Draw the item widget.
-		w.Draw(ctx, canvas)
+		// Draw item via RepaintBoundary wrapper (Phase 2, ADR-004).
+		rb := lv.cache.boundaryAt(offset)
+		if rb != nil {
+			rb.Layout(ctx, itemConstraints)
+			rb.SetBounds(itemBounds)
+			rb.Draw(ctx, canvas)
+		} else {
+			w.Draw(ctx, canvas)
+		}
 
 		// Draw divider between items (not after the last visible item).
 		if lv.cfg.divider && i < end-1 {

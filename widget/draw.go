@@ -40,6 +40,26 @@ type DrawStats struct {
 	CachedWidgets int
 }
 
+// DrawStatsProvider is an optional interface implemented by Context
+// implementations that support draw statistics collection.
+//
+// During a draw pass, widgets like RepaintBoundary type-assert the Context
+// to DrawStatsProvider to record cache hits in the frame's DrawStats.
+// This uses the established "interface extension via type assertion" pattern
+// (same as Focusable, redrawChecker) to avoid adding methods to the
+// Context interface (which would be a breaking change).
+//
+// Example usage in a widget's Draw method:
+//
+//	if provider, ok := ctx.(widget.DrawStatsProvider); ok {
+//	    if stats := provider.DrawStats(); stats != nil {
+//	        stats.CachedWidgets++
+//	    }
+//	}
+type DrawStatsProvider interface {
+	DrawStats() *DrawStats
+}
+
 // DrawTree performs a draw traversal of the widget tree rooted at w,
 // collecting statistics about dirty/clean widget state.
 //
@@ -55,6 +75,17 @@ type DrawStats struct {
 // If w is nil, DrawTree returns zero stats and does nothing.
 func DrawTree(w Widget, ctx Context, canvas Canvas) DrawStats {
 	var stats DrawStats
+
+	// Make stats accessible to widgets (e.g., RepaintBoundary) via type
+	// assertion on the context during the draw pass.
+	type drawStatsSetter interface {
+		SetDrawStats(*DrawStats)
+	}
+	if setter, ok := ctx.(drawStatsSetter); ok {
+		setter.SetDrawStats(&stats)
+		defer setter.SetDrawStats(nil)
+	}
+
 	drawTreeRecursive(w, ctx, canvas, &stats)
 	return stats
 }
