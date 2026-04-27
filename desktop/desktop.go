@@ -72,13 +72,20 @@ func Run(gogpuApp *gogpu.App, uiApp *app.App) error {
 	return gogpuApp.Run()
 }
 
+// swapchainDepth is the number of swapchain buffers that must each receive
+// a full LoadOpClear render before damage-aware LoadOpLoad can safely
+// preserve their content. Typical swapchain depth is 2-3 buffers.
+const swapchainDepth = 3
+
 // renderLoop holds the state for the managed render loop.
 // Each desktop.Run call creates exactly one renderLoop.
 type renderLoop struct {
-	gogpuApp     *gogpu.App
-	uiApp        *app.App
-	canvas       *ggcanvas.Canvas
-	textureReady bool // true after the first Render promotes pendingTexture
+	gogpuApp      *gogpu.App
+	uiApp         *app.App
+	canvas        *ggcanvas.Canvas
+	textureReady  bool // true after the first Render promotes pendingTexture
+	warmupFrames  int  // full-clear frames remaining for swapchain warmup
+	lastDirtyRect image.Rectangle
 }
 
 // draw is the OnDraw callback registered with gogpu.App.
@@ -117,6 +124,7 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 		// Resize destroys the GPU texture; next FlushPixmap creates a new
 		// pendingTexture that must be promoted via Render on the next frame.
 		rl.textureReady = false
+		rl.warmupFrames = swapchainDepth
 	}
 
 	// ADR-007: Retained-mode compositor.
@@ -149,12 +157,15 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 
 	win.PaintDirtyBoundaries()
 
+	rl.lastDirtyRect = image.Rectangle{}
 	if drawn {
 		if win.WasFullRepaint() {
 			rl.canvas.MarkDirty()
 		} else {
 			du := win.LastDirtyUnion()
-			rl.canvas.MarkDirtyRegion(dirtyUnionToPixelRect(du))
+			dr := dirtyUnionToPixelRect(du)
+			rl.canvas.MarkDirtyRegion(dr)
+			rl.lastDirtyRect = dr
 		}
 	}
 
@@ -183,36 +194,13 @@ func (rl *renderLoop) initCanvas(w, h int) bool {
 	return true
 }
 
-// markDirtyRegion computes the dirty region for partial texture upload.
+// present composites the CPU pixmap onto the GPU swapchain surface.
 //
-// ADR-007 Phase 3 (Task 3d): when the boundary damage region is tighter
-// than the widget-level dirty union, use it for more precise scissoring.
-// The boundary damage region covers only the screen bounds of changed
-// RepaintBoundary instances, which is often smaller than the union of
-// all dirty widgets.
-// present implements the ADR-007 single-pass compositor.
-//
-// On the first frame (and after resize), the GPU texture does not yet exist
-// — FlushPixmap returns a pendingTexture placeholder. In this case, present
-// falls back to canvas.Render which promotes the pending texture to a real
-// GPU resource via the RenderTarget's TextureCreator.
-//
-// On all subsequent frames, a single compositor render pass draws both
-// the CPU pixmap layer and GPU-accelerated shapes (SDF, text) to the
-// swapchain surface — matching the Flutter/Chrome enterprise pattern:
-//
-//  1. FlushPixmap: upload CPU pixmap to GPU texture (partial region only).
-//     Unlike Flush(), this does NOT call FlushGPU — pending GPU shapes
-//     (SDF circles, rounded rects) remain queued.
-//
-//  2. DrawGPUTexture: queue the pixmap texture as a full-screen textured
-//     quad in gg's GPU render context (base layer).
-//
-//  3. FlushGPUWithView: single render pass composites pixmap quad + GPU
-//     shapes onto the swapchain surface. Zero readback, zero staging.
-//
-// This is the Flutter OffsetLayer / Chrome cc compositor pattern:
-// all layers as textured quads in ONE render pass, zero CPU readback.
+// Uses damage-aware rendering: after all swapchain buffers have been
+// initialized with full LoadOpClear frames (warmup), partial repaints
+// pass a damage rect to FlushGPUWithViewDamage which uses LoadOpLoad +
+// scissor — only damaged pixels are composited, rest preserved from the
+// previous frame in that swapchain buffer.
 func (rl *renderLoop) present(dc *gogpu.Context) {
 	rt := dc.RenderTarget()
 
@@ -223,6 +211,7 @@ func (rl *renderLoop) present(dc *gogpu.Context) {
 			return
 		}
 		rl.textureReady = true
+		rl.warmupFrames = swapchainDepth
 		return
 	}
 
@@ -252,8 +241,13 @@ func (rl *renderLoop) present(dc *gogpu.Context) {
 	}
 	sw, sh := dc.SurfaceSize()
 
-	if err := cc.FlushGPUWithView(sv, sw, sh); err != nil {
-		log.Printf("desktop: FlushGPUWithView: %v", err)
+	damage := rl.lastDirtyRect
+	if rl.warmupFrames > 0 {
+		rl.warmupFrames--
+		damage = image.Rectangle{}
+	}
+	if err := cc.FlushGPUWithViewDamage(sv, sw, sh, damage); err != nil {
+		log.Printf("desktop: FlushGPUWithViewDamage: %v", err)
 	}
 }
 
