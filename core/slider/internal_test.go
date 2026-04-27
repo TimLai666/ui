@@ -1872,3 +1872,97 @@ func (c *internalMockCanvas) PopTransform()                                {}
 func (c *internalMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
 func (c *internalMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *internalMockCanvas) ReplayScene(_ *scene.Scene)                   {}
+
+// --- Granular Invalidation Tests (TASK-UI-INVAL-001d) ---
+
+func TestGranularInvalidation_Slider_HoverEnter(t *testing.T) {
+	w := New(Min(0), Max(100), Value(50))
+	w.SetBounds(geometry.NewRect(0, 0, 300, 40))
+	ctx := widget.NewContext()
+
+	e := event.NewMouseEvent(event.MouseEnter, event.ButtonNone, 0,
+		geometry.Pt(150, 20), geometry.Pt(150, 20), event.ModNone)
+	handleEvent(w, ctx, e)
+
+	if ctx.IsInvalidated() {
+		t.Error("slider hover enter should use granular invalidation, not ctx.Invalidate()")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("slider hover enter should set needsRedraw")
+	}
+}
+
+func TestGranularInvalidation_Slider_HoverLeave(t *testing.T) {
+	w := New(Min(0), Max(100), Value(50))
+	w.SetBounds(geometry.NewRect(0, 0, 300, 40))
+	ctx := widget.NewContext()
+
+	e := event.NewMouseEvent(event.MouseLeave, event.ButtonNone, 0,
+		geometry.Pt(400, 20), geometry.Pt(400, 20), event.ModNone)
+	handleEvent(w, ctx, e)
+
+	if ctx.IsInvalidated() {
+		t.Error("slider hover leave should use granular invalidation")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("slider hover leave should set needsRedraw")
+	}
+}
+
+func TestGranularInvalidation_Slider_Drag(t *testing.T) {
+	var lastValue float32
+	w := New(Min(0), Max(100), Value(50), OnChange(func(v float32) { lastValue = v }))
+	w.SetBounds(geometry.NewRect(0, 0, 300, 40))
+
+	// Press to start drag.
+	ctx := widget.NewContext()
+	press := event.NewMouseEvent(event.MousePress, event.ButtonLeft, event.ButtonStateLeft,
+		geometry.Pt(150, 20), geometry.Pt(150, 20), event.ModNone)
+	handleEvent(w, ctx, press)
+
+	if ctx.IsInvalidated() {
+		t.Error("slider press should use granular invalidation")
+	}
+
+	// Move during drag — this is the critical case, happens per-pixel.
+	ctx = widget.NewContext()
+	w.ClearRedraw()
+	move := event.NewMouseEvent(event.MouseMove, event.ButtonLeft, event.ButtonStateLeft,
+		geometry.Pt(200, 20), geometry.Pt(200, 20), event.ModNone)
+	handleEvent(w, ctx, move)
+
+	if ctx.IsInvalidated() {
+		t.Error("slider drag move should use granular invalidation (called per-pixel)")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("slider drag should set needsRedraw")
+	}
+	if lastValue == 50 {
+		t.Error("onChange should have fired with new value during drag")
+	}
+}
+
+func TestGranularInvalidation_Slider_Release(t *testing.T) {
+	w := New(Min(0), Max(100), Value(50))
+	w.SetBounds(geometry.NewRect(0, 0, 300, 40))
+
+	// Press to start drag.
+	ctx := widget.NewContext()
+	press := event.NewMouseEvent(event.MousePress, event.ButtonLeft, event.ButtonStateLeft,
+		geometry.Pt(150, 20), geometry.Pt(150, 20), event.ModNone)
+	handleEvent(w, ctx, press)
+
+	// Release.
+	ctx = widget.NewContext()
+	w.ClearRedraw()
+	release := event.NewMouseEvent(event.MouseRelease, event.ButtonLeft, 0,
+		geometry.Pt(150, 20), geometry.Pt(150, 20), event.ModNone)
+	handleEvent(w, ctx, release)
+
+	if ctx.IsInvalidated() {
+		t.Error("slider release should use granular invalidation")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("slider release should set needsRedraw")
+	}
+}

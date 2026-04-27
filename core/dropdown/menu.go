@@ -115,11 +115,13 @@ func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool 
 	switch e.Key {
 	case event.KeyDown:
 		m.moveHighlight(1)
-		ctx.Invalidate()
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyUp:
 		m.moveHighlight(-1)
-		ctx.Invalidate()
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyEnter, event.KeySpace:
 		if m.highlightedIndex >= 0 && m.highlightedIndex < len(m.items) {
@@ -131,12 +133,14 @@ func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool 
 	case event.KeyHome:
 		m.highlightedIndex = m.findNextEnabled(0, 1)
 		m.ensureVisible(m.highlightedIndex)
-		ctx.Invalidate()
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyEnd:
 		m.highlightedIndex = m.findNextEnabled(len(m.items)-1, -1)
 		m.ensureVisible(m.highlightedIndex)
-		ctx.Invalidate()
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	default:
 		return false
@@ -155,7 +159,8 @@ func (m *menuWidget) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) b
 		index := m.indexAtPosition(e.Position)
 		if index != m.highlightedIndex {
 			m.highlightedIndex = index
-			ctx.Invalidate()
+			m.SetNeedsRedraw(true)
+			ctx.InvalidateRect(m.Bounds())
 		}
 		return true
 	case event.MousePress:
@@ -188,13 +193,15 @@ func (m *menuWidget) handleWheelEvent(ctx widget.Context, e *event.WheelEvent) b
 		// Scroll up.
 		if m.scrollOffset > 0 {
 			m.scrollOffset--
-			ctx.Invalidate()
+			m.SetNeedsRedraw(true)
+			ctx.InvalidateRect(m.Bounds())
 		}
 	} else if e.Delta.Y < 0 {
 		// Scroll down.
 		if m.scrollOffset < maxScroll {
 			m.scrollOffset++
-			ctx.Invalidate()
+			m.SetNeedsRedraw(true)
+			ctx.InvalidateRect(m.Bounds())
 		}
 	}
 	return true

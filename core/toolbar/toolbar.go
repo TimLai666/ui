@@ -384,7 +384,8 @@ func (w *Widget) handlePress(ctx widget.Context, local geometry.Point) bool {
 
 	w.itemStates[idx].interaction = statePressed
 	w.focusIndex = idx
-	ctx.Invalidate()
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -411,7 +412,8 @@ func (w *Widget) handleRelease(ctx widget.Context, local geometry.Point) bool {
 	} else {
 		w.itemStates[wasPressed].interaction = stateNormal
 	}
-	ctx.Invalidate()
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 
 	// Fire click if released on the same item that was pressed.
 	if idx == wasPressed {
@@ -442,7 +444,8 @@ func (w *Widget) handleMove(ctx widget.Context, local geometry.Point) bool {
 	}
 
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
@@ -469,7 +472,8 @@ func (w *Widget) clearHoverStates(ctx widget.Context) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
@@ -535,7 +539,8 @@ func (w *Widget) moveFocus(ctx widget.Context, direction int) bool {
 		item := w.cfg.items[idx]
 		if item.Kind == ItemButton && item.Enabled {
 			w.focusIndex = idx
-			ctx.Invalidate()
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 			return true
 		}
 		idx += direction

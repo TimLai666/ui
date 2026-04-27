@@ -446,7 +446,8 @@ func (w *Widget) handlePress(ctx widget.Context, local geometry.Point) bool {
 		for i := 0; i < controlCount; i++ {
 			if w.controlBounds[i].Contains(local) {
 				w.controlStates[i] = statePressed
-				ctx.Invalidate()
+				w.SetNeedsRedraw(true)
+				ctx.InvalidateRect(w.Bounds())
 				return true
 			}
 		}
@@ -498,7 +499,8 @@ func (w *Widget) handleRelease(ctx widget.Context, local geometry.Point) bool {
 		} else {
 			w.controlStates[i] = stateNormal
 		}
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 
 		// Fire action only if released on the same button.
 		if w.controlBounds[i].Contains(local) && w.cfg.chrome != nil {
@@ -600,7 +602,8 @@ func (w *Widget) handleMove(ctx widget.Context, local geometry.Point) bool {
 	w.hoveredChild = currentChild
 
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
@@ -627,7 +630,8 @@ func (w *Widget) clearControlHovers(ctx widget.Context) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }

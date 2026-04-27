@@ -29,13 +29,15 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	case event.MouseEnter:
 		w.state = stateHover
 		ctx.SetCursor(widget.CursorPointer)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MouseLeave:
 		w.state = stateNormal
 		ctx.SetCursor(widget.CursorDefault)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MousePress:
@@ -44,7 +46,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		}
 		w.state = statePressed
 		ctx.RequestFocus(w)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MouseRelease:
@@ -58,7 +61,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		} else {
 			w.state = stateNormal
 		}
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		if wasPressed && w.Bounds().Contains(e.Position) {
 			fireOnClick(w)
 		}

@@ -34,7 +34,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		if hdr.Contains(e.Position) {
 			w.istate = stateHover
 			ctx.SetCursor(widget.CursorPointer)
-			ctx.Invalidate()
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 			return true
 		}
 		return false // Let content handle enter
@@ -44,13 +45,15 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 			if w.istate == stateNormal {
 				w.istate = stateHover
 				ctx.SetCursor(widget.CursorPointer)
-				ctx.Invalidate()
+				w.SetNeedsRedraw(true)
+				ctx.InvalidateRect(w.Bounds())
 			}
 		} else {
 			if w.istate == stateHover {
 				w.istate = stateNormal
 				ctx.SetCursor(widget.CursorDefault)
-				ctx.Invalidate()
+				w.SetNeedsRedraw(true)
+				ctx.InvalidateRect(w.Bounds())
 			}
 		}
 		return false // Allow propagation for content area events.
@@ -59,7 +62,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		if w.istate != stateNormal {
 			w.istate = stateNormal
 			ctx.SetCursor(widget.CursorDefault)
-			ctx.Invalidate()
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return false // Let content handle leave too
 
@@ -72,7 +76,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		}
 		w.istate = statePressed
 		ctx.RequestFocus(w)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MouseRelease:
@@ -117,7 +122,8 @@ func handleActivationKey(w *Widget, ctx widget.Context, e *event.KeyEvent) bool 
 	switch e.KeyType {
 	case event.KeyPress:
 		w.istate = statePressed
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 	case event.KeyRelease:
 		wasPressed := w.istate == statePressed

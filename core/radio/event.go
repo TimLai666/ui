@@ -29,13 +29,15 @@ func handleItemMouseEvent(it *Item, ctx widget.Context, e *event.MouseEvent) boo
 	case event.MouseEnter:
 		it.state = stateHover
 		ctx.SetCursor(widget.CursorPointer)
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		return true
 
 	case event.MouseLeave:
 		it.state = stateNormal
 		ctx.SetCursor(widget.CursorDefault)
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		return true
 
 	case event.MousePress:
@@ -44,7 +46,8 @@ func handleItemMouseEvent(it *Item, ctx widget.Context, e *event.MouseEvent) boo
 		}
 		it.state = statePressed
 		ctx.RequestFocus(it)
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		return true
 
 	case event.MouseRelease:
@@ -58,7 +61,8 @@ func handleItemMouseEvent(it *Item, ctx widget.Context, e *event.MouseEvent) boo
 		} else {
 			it.state = stateNormal
 		}
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		if wasPressed && it.Bounds().Contains(e.Position) {
 			it.group.selectValue(it.value)
 		}
@@ -90,12 +94,14 @@ func handleActivationKey(it *Item, ctx widget.Context, e *event.KeyEvent) bool {
 	switch e.KeyType {
 	case event.KeyPress:
 		it.state = statePressed
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		return true
 	case event.KeyRelease:
 		wasPressed := it.state == statePressed
 		it.state = stateNormal
-		ctx.Invalidate()
+		it.SetNeedsRedraw(true)
+		ctx.InvalidateRect(it.Bounds())
 		if wasPressed {
 			it.group.selectValue(it.value)
 		}

@@ -3,7 +3,9 @@ package tabview
 import (
 	"testing"
 
+	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
+	"github.com/gogpu/ui/widget"
 )
 
 // --- Config Tests ---
@@ -194,4 +196,106 @@ func TestDefaultPainter_EmptyBounds(t *testing.T) {
 	p := DefaultPainter{}
 	// Should not panic with empty bounds.
 	p.PaintTabBar(nil, PaintState{})
+}
+
+// --- Granular Invalidation Tests (TASK-UI-INVAL-001f) ---
+//
+// These tests verify that hover/visual changes use granular invalidation
+// (SetNeedsRedraw + InvalidateRect) instead of full-tree ctx.Invalidate().
+
+func TestGranularInvalidation_HoverChange_NoFullInvalidate(t *testing.T) {
+	tabs := []Tab{
+		{Label: "Tab1"},
+		{Label: "Tab2"},
+		{Label: "Tab3"},
+	}
+	w := New(tabs)
+	w.SetBounds(geometry.NewRect(0, 0, 300, 300))
+	w.computeTabLayout(geometry.Sz(300, 300))
+	w.updateTabStates(0)
+	ctx := widget.NewContext()
+
+	// Move mouse over the second tab to trigger hover change.
+	tabCenter := w.tabStates[1].Bounds.Center()
+	move := event.NewMouseEvent(event.MouseMove, event.ButtonNone, 0,
+		tabCenter, tabCenter, event.ModNone)
+	handleMouseEvent(w, ctx, move)
+
+	if ctx.IsInvalidated() {
+		t.Error("tab hover change should NOT trigger full invalidation (ctx.Invalidate)")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("tab hover change should set needsRedraw on widget")
+	}
+	if ctx.InvalidatedRect().IsEmpty() {
+		t.Error("tab hover change should trigger InvalidateRect with widget bounds")
+	}
+}
+
+func TestGranularInvalidation_MouseLeave_NoFullInvalidate(t *testing.T) {
+	tabs := []Tab{
+		{Label: "Tab1"},
+		{Label: "Tab2"},
+	}
+	w := New(tabs)
+	w.SetBounds(geometry.NewRect(0, 0, 200, 300))
+	w.computeTabLayout(geometry.Sz(200, 300))
+	w.updateTabStates(0)
+
+	// Set a tab as hovered first.
+	w.tabStates[0].Hovered = true
+
+	ctx := widget.NewContext()
+	handleMouseLeave(w, ctx)
+
+	if ctx.IsInvalidated() {
+		t.Error("MouseLeave should NOT trigger full invalidation")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("MouseLeave should set needsRedraw on widget")
+	}
+	if ctx.InvalidatedRect().IsEmpty() {
+		t.Error("MouseLeave should trigger InvalidateRect")
+	}
+}
+
+func TestGranularInvalidation_SelectTab_KeepsFullInvalidation(t *testing.T) {
+	tabs := []Tab{
+		{Label: "Tab1"},
+		{Label: "Tab2"},
+	}
+	w := New(tabs)
+	w.SetBounds(geometry.NewRect(0, 0, 200, 300))
+	ctx := widget.NewContext()
+
+	// selectTab is a structural change (content swap) -- MUST use full invalidation.
+	w.selectTab(ctx, 1)
+
+	if !ctx.IsInvalidated() {
+		t.Error("selectTab MUST trigger full invalidation (structural change: content swap)")
+	}
+}
+
+func TestGranularInvalidation_InvalidateRect_MatchesBounds(t *testing.T) {
+	tabs := []Tab{
+		{Label: "Tab1"},
+		{Label: "Tab2"},
+	}
+	bounds := geometry.NewRect(10, 20, 200, 300)
+	w := New(tabs)
+	w.SetBounds(bounds)
+	w.computeTabLayout(geometry.Sz(200, 300))
+	w.updateTabStates(0)
+	ctx := widget.NewContext()
+
+	// Hover a tab to trigger InvalidateRect.
+	tabCenter := w.tabStates[1].Bounds.Center()
+	move := event.NewMouseEvent(event.MouseMove, event.ButtonNone, 0,
+		tabCenter, tabCenter, event.ModNone)
+	handleMouseEvent(w, ctx, move)
+
+	got := ctx.InvalidatedRect()
+	if got != bounds {
+		t.Errorf("InvalidatedRect = %v, want %v (widget bounds)", got, bounds)
+	}
 }

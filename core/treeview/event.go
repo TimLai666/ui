@@ -40,7 +40,7 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		if w.hoveredIndex != noHoveredIndex {
 			w.hoveredIndex = noHoveredIndex
 			w.SetNeedsRedraw(true)
-			ctx.Invalidate()
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return false
 	default:
@@ -55,7 +55,7 @@ func handleMouseMove(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	if idx != w.hoveredIndex {
 		w.hoveredIndex = idx
 		w.SetNeedsRedraw(true)
-		ctx.Invalidate()
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return false // Don't consume move events.
 }

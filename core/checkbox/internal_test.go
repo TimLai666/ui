@@ -1410,3 +1410,71 @@ func TestConfig_ResolvedDisabled_ReadonlySignal(t *testing.T) {
 		t.Error("ResolvedDisabled() should be true (readonly computed signal)")
 	}
 }
+
+// --- Granular Invalidation Tests (TASK-UI-INVAL-001b) ---
+
+func TestGranularInvalidation_Checkbox_HoverEnter(t *testing.T) {
+	w := New(Label("Test"))
+	w.SetBounds(geometry.NewRect(0, 0, 100, 40))
+	ctx := widget.NewContext()
+
+	e := event.NewMouseEvent(event.MouseEnter, event.ButtonNone, 0,
+		geometry.Pt(50, 20), geometry.Pt(50, 20), event.ModNone)
+	handleEvent(w, ctx, e)
+
+	if ctx.IsInvalidated() {
+		t.Error("hover enter should use granular invalidation, not ctx.Invalidate()")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("hover enter should set needsRedraw")
+	}
+	if ctx.InvalidatedRect().IsEmpty() {
+		t.Error("hover enter should trigger InvalidateRect")
+	}
+}
+
+func TestGranularInvalidation_Checkbox_HoverLeave(t *testing.T) {
+	w := New(Label("Test"))
+	w.SetBounds(geometry.NewRect(0, 0, 100, 40))
+	ctx := widget.NewContext()
+
+	e := event.NewMouseEvent(event.MouseLeave, event.ButtonNone, 0,
+		geometry.Pt(150, 20), geometry.Pt(150, 20), event.ModNone)
+	handleEvent(w, ctx, e)
+
+	if ctx.IsInvalidated() {
+		t.Error("hover leave should use granular invalidation")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("hover leave should set needsRedraw")
+	}
+}
+
+func TestGranularInvalidation_Checkbox_PressRelease(t *testing.T) {
+	toggled := false
+	w := New(Label("Test"), OnToggle(func(bool) { toggled = true }))
+	w.SetBounds(geometry.NewRect(0, 0, 100, 40))
+
+	// Press.
+	ctx := widget.NewContext()
+	press := event.NewMouseEvent(event.MousePress, event.ButtonLeft, event.ButtonStateLeft,
+		geometry.Pt(50, 20), geometry.Pt(50, 20), event.ModNone)
+	handleEvent(w, ctx, press)
+
+	if ctx.IsInvalidated() {
+		t.Error("press should use granular invalidation")
+	}
+
+	// Release inside.
+	ctx = widget.NewContext()
+	release := event.NewMouseEvent(event.MouseRelease, event.ButtonLeft, 0,
+		geometry.Pt(50, 20), geometry.Pt(50, 20), event.ModNone)
+	handleEvent(w, ctx, release)
+
+	if ctx.IsInvalidated() {
+		t.Error("release should use granular invalidation")
+	}
+	if !toggled {
+		t.Error("onToggle should still fire on release inside bounds")
+	}
+}

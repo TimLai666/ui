@@ -28,13 +28,15 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	case event.MouseEnter:
 		w.hovered = true
 		ctx.SetCursor(widget.CursorText)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MouseLeave:
 		w.hovered = false
 		ctx.SetCursor(widget.CursorDefault)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MousePress:

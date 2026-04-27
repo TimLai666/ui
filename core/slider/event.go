@@ -32,7 +32,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	case event.MouseEnter:
 		w.interaction = stateHover
 		ctx.SetCursor(widget.CursorPointer)
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MouseLeave:
@@ -40,7 +41,8 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 			w.interaction = stateNormal
 			ctx.SetCursor(widget.CursorDefault)
 		}
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return true
 
 	case event.MousePress:
@@ -87,7 +89,8 @@ func handleMouseRelease(w *Widget, ctx widget.Context, e *event.MouseEvent) bool
 		w.interaction = stateNormal
 		ctx.SetCursor(widget.CursorDefault)
 	}
-	ctx.Invalidate()
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 
 	return wasDragging
 }
@@ -225,7 +228,8 @@ func setValue(w *Widget, ctx widget.Context, rawValue float32) {
 		w.cfg.onChange(newValue)
 	}
 
-	ctx.Invalidate()
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // clampAndSnap clamps val to [minVal, maxVal] and snaps to nearest step if step > 0.

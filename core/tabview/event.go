@@ -87,7 +87,8 @@ func handleMouseMove(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
@@ -102,7 +103,8 @@ func handleMouseLeave(w *Widget, ctx widget.Context) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
