@@ -25,24 +25,22 @@ func TestRunNilArgs(t *testing.T) {
 	})
 }
 
-// TestRunForcesFrameworkManaged verifies that Run sets FrameworkManaged
-// render mode on the UI window. We can't call Run (needs GPU context)
-// but we verify the mode is set by inspecting the window after setup.
-func TestRunForcesFrameworkManaged(t *testing.T) {
-	// Create a headless UI app and verify SetRenderMode is available.
+// TestRunForcesHostManaged verifies that Run sets HostManaged render mode
+// for scene composition (ADR-007 Phase 5). HostManaged always draws the
+// full tree — RepaintBoundary cache handles efficiency.
+func TestRunForcesHostManaged(t *testing.T) {
 	uiApp := app.New()
 	w := uiApp.Window()
 
-	// Default mode is HostManaged.
 	if w.RenderMode() != app.RenderModeHostManaged {
 		t.Fatalf("default mode = %v, want HostManaged", w.RenderMode())
 	}
 
-	// Simulate what Run does: force FrameworkManaged.
-	w.SetRenderMode(app.RenderModeFrameworkManaged)
+	// Simulate what Run does: set HostManaged (scene composition).
+	w.SetRenderMode(app.RenderModeHostManaged)
 
-	if w.RenderMode() != app.RenderModeFrameworkManaged {
-		t.Errorf("mode after SetRenderMode = %v, want FrameworkManaged", w.RenderMode())
+	if w.RenderMode() != app.RenderModeHostManaged {
+		t.Errorf("mode after SetRenderMode = %v, want HostManaged", w.RenderMode())
 	}
 }
 

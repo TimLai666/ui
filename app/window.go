@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gogpu/gg/scene"
 	"github.com/gogpu/gpucontext"
 	ui "github.com/gogpu/ui"
 	"github.com/gogpu/ui/event"
@@ -1159,63 +1158,13 @@ func (w *Window) ClearDirtyBoundaries() {
 //
 // RepaintBoundary.Draw() handles cache invalidation internally: when
 // boundaryDirty is true, it re-records child.Draw() into its scene.Scene.
-// This method does NOT need to pre-paint — the Draw pass during
-// ComposeRootScene triggers re-recording automatically.
+// The full DrawTree pass triggers re-recording automatically — dirty
+// boundaries re-record, clean ones replay cached scenes via ReplayScene.
 //
 // This is the Flutter flushPaint pattern: only dirty RepaintBoundary nodes
 // re-record, clean ones replay cached scenes.
 func (w *Window) PaintDirtyBoundaries() {
 	w.ClearDirtyBoundaries()
-}
-
-// ComposeRootScene builds a root scene.Scene by drawing the widget tree
-// into a SceneCanvas. RepaintBoundary widgets with cache hits replay their
-// cached scene via Scene.Append; dirty boundaries re-record and then replay.
-//
-// The returned scene contains ALL drawing commands for the entire frame
-// (background + widgets + overlays). The compositor renders it via
-// GPUSceneRenderer → FlushGPUWithView in a single render pass.
-//
-// This is ADR-007 Phase 5: scene composition.
-func (w *Window) ComposeRootScene() *scene.Scene {
-	if w.root == nil {
-		return nil
-	}
-
-	hasTreeDirty := w.needsRedraw || w.HasDirtyBoundaries() ||
-		!w.dirtyTracker.IsEmpty() || widget.NeedsRedrawInTree(w.root)
-
-	if !hasTreeDirty && !w.needsFullRepaint {
-		return nil
-	}
-
-	size := w.windowSize
-	sw := int(size.Width)
-	sh := int(size.Height)
-	if sw <= 0 || sh <= 0 {
-		return nil
-	}
-
-	widget.ClearRedrawInTree(w.root)
-
-	rootScene := scene.NewScene()
-	rootScene.Reset()
-
-	recorder := internalRender.NewSceneCanvas(rootScene, sw, sh)
-
-	bg := w.ThemeBackground()
-	recorder.Clear(bg)
-
-	widget.DrawTree(w.root, w.ctx, recorder)
-
-	w.overlays.Draw(w.ctx, recorder)
-
-	recorder.Close()
-
-	w.needsRedraw = false
-	w.needsFullRepaint = false
-
-	return rootScene
 }
 
 // BoundaryDamageRegion computes the union of screen bounds of all dirty

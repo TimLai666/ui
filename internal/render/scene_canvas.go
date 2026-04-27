@@ -452,17 +452,18 @@ func (c *SceneCanvas) ClipBounds() geometry.Rect {
 }
 
 // ReplayScene merges a child scene.Scene into this canvas's parent scene
-// via Scene.Append. This is the scene-concatenation path (ADR-007) used
-// when a RepaintBoundary replays its cached display list inside another
-// SceneCanvas (nested boundaries).
+// with translation offset. This is the scene-concatenation path (ADR-007)
+// used when a RepaintBoundary replays its cached display list inside
+// another SceneCanvas (nested boundaries).
 //
-// Scene.Append merges encodings with image index adjustment and bounds
-// union — O(commands), zero re-encoding. If s is nil or empty, no-op.
+// The child scene was recorded in local coordinates (0,0 = boundary origin).
+// AppendWithTranslation offsets all path coordinates by the current cumulative
+// transform offset, following the Vello pattern (encoding.rs:162-169).
 func (c *SceneCanvas) ReplayScene(s *scene.Scene) {
 	if s == nil || s.IsEmpty() {
 		return
 	}
-	c.sc.Append(s)
+	c.sc.AppendWithTranslation(s, c.currentOffset.X, c.currentOffset.Y)
 }
 
 // --- Internal helpers ---

@@ -5,7 +5,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/gogpu/gg"
 	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
 	"github.com/gogpu/ui/state"
@@ -138,7 +137,7 @@ func (w *Widget) drawDeterminate(_ widget.Context, canvas widget.Canvas, bounds 
 		ps.Label = w.resolveLabel(value)
 	}
 
-	w.paintCPUDirect(canvas, ps)
+	w.painter.PaintProgress(canvas, ps)
 }
 
 // drawIndeterminate renders the spinner via the painter.
@@ -164,40 +163,9 @@ func (w *Widget) drawIndeterminate(ctx widget.Context, canvas widget.Canvas, bou
 		AnimationPhase: computeAnimationPhase(elapsed),
 	}
 
-	w.paintCPUDirect(canvas, ps)
+	w.painter.PaintProgress(canvas, ps)
 	w.MarkRedrawLocal()
 	ctx.InvalidateRect(w.Bounds())
-}
-
-// ggContextAccessor is an optional interface for canvases that expose
-// their underlying gg.Context. Used to force CPU-only rasterization
-// so progress indicator strokes bypass the GPU SDF accelerator, keeping
-// the main compositor canvas SDF-free for the blit-only non-MSAA fast path.
-type ggContextAccessor interface {
-	Context() *gg.Context
-}
-
-// paintCPUDirect renders the progress indicator using CPU-only rasterization.
-//
-// When the canvas exposes a gg.Context, this method temporarily switches
-// the rasterizer to RasterizerAnalytic (CPU scanline) before painting.
-// This prevents StrokeCircle/StrokeArc from being intercepted by the GPU
-// SDF accelerator, which would queue SDF shapes on the main compositor
-// canvas and block the non-MSAA blit-only fast path (ADR-006/ADR-016).
-//
-// A 48×48 spinner has ~150 pixels of stroke — CPU rasterization cost is
-// negligible. GPU SDF for such a small shape creates 116 MB/frame MSAA
-// bandwidth overhead (full-window 4× MSAA) vs ~0 for CPU rendering.
-func (w *Widget) paintCPUDirect(canvas widget.Canvas, ps PaintState) {
-	if accessor, ok := canvas.(ggContextAccessor); ok {
-		dc := accessor.Context()
-		saved := dc.RasterizerMode()
-		dc.SetRasterizerMode(gg.RasterizerAnalytic)
-		w.painter.PaintProgress(canvas, ps)
-		dc.SetRasterizerMode(saved)
-		return
-	}
-	w.painter.PaintProgress(canvas, ps)
 }
 
 // elapsedSeconds returns seconds since the spinner started.
