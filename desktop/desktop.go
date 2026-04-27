@@ -17,14 +17,13 @@ import (
 //
 // The rendering pipeline:
 //  1. Frame: flush signals, layout, animations (Window.Frame)
-//  2. Compose: build root scene.Scene from widget tree (Window.ComposeRootScene)
-//     - RepaintBoundary cache hit: replay cached scene via Scene.Append
+//  2. Draw: full DrawTree into render.Canvas (gg.Context GPU pipeline)
+//     - RepaintBoundary cache hit: ReplayScene replays cached scene.Scene
 //     - RepaintBoundary cache miss: re-record child.Draw into scene
-//  3. Render: GPUSceneRenderer decodes scene into gg.Context GPU pipeline
-//  4. Present: FlushGPUWithView sends all GPU shapes to surface in one pass
+//  3. Present: FlushGPUWithView sends all GPU shapes to surface in one pass
 //
-// No persistent CPU pixmap. No RasterizerAnalytic hack. No drawDirtyRegions.
-// GPU SDF shapes live inside scene display lists — replayed fresh each frame.
+// No retained CPU pixmap. No RasterizerAnalytic hack. No drawDirtyRegions.
+// GPU SDF shapes are re-queued every frame via scene replay.
 //
 // Run blocks until the window is closed.
 func Run(gogpuApp *gogpu.App, uiApp *app.App) error {

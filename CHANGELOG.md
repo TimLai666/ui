@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (Dependencies)
 
-- **gg** v0.40.0 → **v0.43.3+** — scene.AppendWithTranslation, scene fixes, stem hinting, LoadOp damage, opacity API
+- **gg** v0.40.0 → **v0.43.4** — scene.AppendWithTranslation, scene fixes, stem hinting, LoadOp damage, opacity API
 - **gogpu** v0.26.4 → **v0.30.0** — event-driven frame pacing, mouse grab, frameless windows
 - **gpucontext** v0.11.0 → **v0.15.0** — type-safe TextureView handles (ADR-018), CursorMode
 - **wgpu** v0.24.4 → **v0.26.8** — Metal cull mode, DWM fix, deferred destruction

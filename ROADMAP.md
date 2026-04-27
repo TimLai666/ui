@@ -312,19 +312,23 @@ Single-pass compositor (Flutter OffsetLayer / Chrome cc pattern):
 - `DrawGPUTextureBase`: pixmap as base layer (drawn first)
 - `FlushGPUWithView`: GPU shapes overlay (same render pass)
 
-### Phase 2: CPU-Direct Rendering + Damage-Aware Present ✅ Done
+### Phase 2: Scene Composition Compositor (ADR-007) ✅ Done
 
-- **CPU-direct rendering**: animated widgets (spinner) forced through CPU AnalyticFiller, bypassing GPU SDF accelerator. Keeps main compositor canvas SDF-free.
-- **Damage-aware compositor**: `FlushGPUWithViewDamage` with dirty rect → `LoadOpLoad` + `SetScissorRect`. GPU processes only changed pixels (48×48 for spinner).
-- **Swapchain warmup**: first 3 frames `LoadOpClear` + full blit before enabling `LoadOpLoad`.
-- **Conditional `BeginGPUFrame`**: skipped on damage frames to preserve `frameRendered=true`.
-- **Force `RasterizerAnalytic`** on damage frames → `isBlitOnly()=true` → non-MSAA blit path.
+- **Scene composition**: full DrawTree every frame via render.Canvas (gg.Context GPU pipeline).
+  RepaintBoundary cache hit = replay cached scene.Scene; miss = re-record.
+  Single FlushGPUWithView render pass per frame. No retained CPU pixmap.
+- **Granular widget invalidation** (INVAL-001): 11 interactive widgets migrated from
+  `ctx.Invalidate()` to `SetNeedsRedraw + InvalidateRect`. ~50 regression tests.
+- **GPU SDF shapes natively**: no RasterizerAnalytic hack, shadows and rounded corners
+  rendered via GPU accelerator.
+- **Upward dirty propagation**: O(depth) to nearest RepaintBoundary, O(1) guard.
 
-### Phase 3: Scene-Aware GPU Dispatch — Future
+### Phase 3: Performance Optimization — Future
 
-GPU shapes dispatched directly without full-surface MSAA:
-- GPUSceneRenderer batches SDF/convex/stencil per RepaintBoundary
-- Per-layer GPU dispatch (MSAA at layer size, not window size)
+- **Frame skip**: skip GPU render when nothing changed (OPT-001)
+- **RepaintBoundary isolation**: auto-wrap animated widgets to prevent full-tree redraw (OPT-002)
+- **Damage-aware compositor**: `FlushGPUWithViewDamage` with boundary damage rect (ADR-007 Task 3d)
+- **SceneCanvas rounded clip**: proper rounded clip shapes instead of rectangular fallback
 
 ### Phase 4: Vello Compute Integration — Future
 
