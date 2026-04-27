@@ -72,7 +72,7 @@ cd ui/examples/hello
 go run .
 ```
 
-Here is a minimal example showing the widget toolkit:
+Here is a minimal example using `desktop.Run` (recommended):
 
 ```go
 package main
@@ -80,13 +80,11 @@ package main
 import (
     "log"
 
-    "github.com/gogpu/gg"
     _ "github.com/gogpu/gg/gpu"
-    "github.com/gogpu/gg/integration/ggcanvas"
     "github.com/gogpu/gogpu"
     "github.com/gogpu/ui/app"
+    "github.com/gogpu/ui/desktop"
     "github.com/gogpu/ui/primitives"
-    "github.com/gogpu/ui/render"
     "github.com/gogpu/ui/widget"
 )
 
@@ -113,30 +111,7 @@ func main() {
         ).Padding(24).Gap(12).Background(widget.RGBA8(255, 255, 255, 255)),
     )
 
-    var canvas *ggcanvas.Canvas
-    gogpuApp.OnDraw(func(dc *gogpu.Context) {
-        w, h := dc.Width(), dc.Height()
-        if canvas == nil {
-            var err error
-            canvas, err = ggcanvas.New(gogpuApp.GPUContextProvider(), w, h)
-            if err != nil {
-                log.Fatal(err)
-            }
-        }
-        uiApp.Frame()
-        sv := dc.SurfaceView()
-        sw, sh := dc.SurfaceSize()
-        canvas.Draw(func(cc *gg.Context) {
-            cc.SetRGBA(0.94, 0.94, 0.94, 1)
-            cc.DrawRectangle(0, 0, float64(w), float64(h))
-            cc.Fill()
-            uiApp.Window().DrawTo(render.NewCanvas(cc, w, h))
-        })
-        _ = canvas.RenderDirect(sv, sw, sh)
-    })
-    gogpuApp.OnClose(func() { gg.CloseAccelerator() })
-
-    if err := gogpuApp.Run(); err != nil {
+    if err := desktop.Run(gogpuApp, uiApp); err != nil {
         log.Fatal(err)
     }
 }
@@ -231,7 +206,7 @@ func main() {
 | `uitest` | Testing utilities: MockCanvas, MockContext, event factories, widget helpers, assertions | 93.1% |
 | `internal/dirty` | Dirty region tracking: Collector, Tracker, merge algorithm, partial repaints | 100% |
 
-**Total: ~150,000 lines of code | 55+ packages | ~6,000 tests | ~97% average coverage**
+**Total: ~171,000 lines of code | 55+ packages | ~6,800 tests | ~97% average coverage**
 
 ---
 
@@ -263,6 +238,7 @@ func main() {
 ├─────────────────────────────────────────────────────────────┤
 │  app/ + FocusManager │  focus/ │  overlay/ │  render/       │
 ├─────────────────────────────────────────────────────────────┤
+│  desktop/            (scene composition compositor, ADR-007) │
 │  offscreen/          (headless widget → *image.RGBA)        │
 ├─────────────────────────────────────────────────────────────┤
 │  layout/           │  state/         │  a11y/               │

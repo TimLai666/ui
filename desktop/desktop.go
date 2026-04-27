@@ -150,4 +150,3 @@ func (rl *renderLoop) initCanvas(w, h int) bool {
 	rl.canvas.Context().SetLCDLayout(gg.LCDLayoutRGB)
 	return true
 }
-
