@@ -165,7 +165,7 @@ func (w *Widget) drawIndeterminate(ctx widget.Context, canvas widget.Canvas, bou
 	}
 
 	w.paintCPUDirect(canvas, ps)
-	w.SetNeedsRedraw(true)
+	w.MarkRedrawLocal()
 	ctx.InvalidateRect(w.Bounds())
 }
 

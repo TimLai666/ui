@@ -505,6 +505,14 @@ func (w *WidgetBase) markDirtyLocal() {
 	w.needsRedraw = true
 }
 
+// MarkRedrawLocal sets the needsRedraw flag on this widget only, without
+// propagating upward through the parent chain. Use this for widgets with
+// continuous animations (spinner, progress bar) where only the widget's
+// own bounds should be in the dirty region, not the entire parent subtree.
+func (w *WidgetBase) MarkRedrawLocal() {
+	w.markDirtyLocal()
+}
+
 // ClearRedraw clears the widget's needsRedraw flag after a successful draw.
 //
 // This should be called by the rendering system after the widget has been

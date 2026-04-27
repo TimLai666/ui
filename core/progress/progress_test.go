@@ -369,8 +369,8 @@ func TestDraw_IndeterminateRequestsRedraw(t *testing.T) {
 	w.ClearRedraw()
 	w.Draw(ctx, canvas)
 
-	if !w.NeedsRedraw() {
-		t.Error("indeterminate should mark NeedsRedraw after draw")
+	if ctx.InvalidatedRect().IsEmpty() {
+		t.Error("indeterminate should call InvalidateRect after draw")
 	}
 }
 
@@ -911,8 +911,8 @@ func TestDraw_IndeterminateMultipleFrames(t *testing.T) {
 		if canvas.strokeArcCount == 0 {
 			t.Errorf("frame %d: should draw rotating arc", i)
 		}
-		if !w.NeedsRedraw() {
-			t.Errorf("frame %d: should still request redraw", i)
+		if ctx.InvalidatedRect().IsEmpty() {
+			t.Errorf("frame %d: should request redraw via InvalidateRect", i)
 		}
 	}
 }
