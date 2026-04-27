@@ -101,13 +101,19 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	win := rl.uiApp.Window()
 	cc := rl.canvas.Context()
 
+	// Surface dimensions may differ from canvas by 1-2px (integer rounding).
+	sw, sh := dc.SurfaceSize()
+
 	gg.BeginAcceleratorFrame()
 	cc.BeginGPUFrame()
 
-	// Clear background.
+	// Clear background covering the full surface area.
+	// GPU render pass LoadOpClear uses transparent black — we must cover
+	// every pixel with the theme background to avoid black edges.
 	bg := win.ThemeBackground()
 	cc.SetRGBA(float64(bg.R), float64(bg.G), float64(bg.B), float64(bg.A))
-	cc.Clear()
+	cc.DrawRectangle(0, 0, float64(sw), float64(sh))
+	cc.Fill()
 
 	// Full tree draw. RepaintBoundary cache hits replay cached scene.Scene
 	// via render.Canvas.ReplayScene (Push/Translate/GPUSceneRenderer/Pop).
@@ -121,7 +127,6 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	if sv.IsNil() {
 		return
 	}
-	sw, sh := dc.SurfaceSize()
 	if err := cc.FlushGPUWithView(sv, sw, sh); err != nil {
 		log.Printf("desktop: FlushGPUWithView: %v", err)
 	}
