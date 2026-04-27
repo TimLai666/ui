@@ -5,79 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.14] — 2026-04-26
+## [0.1.14] — 2026-04-27
 
 ### Added
 
-- **Zero-readback compositor** (ADR-006) — single-pass GPU compositor (Flutter OffsetLayer / Chrome cc pattern):
-  - **Base layer**: CPU pixmap texture drawn FIRST via `DrawGPUTextureBase` (gg)
-  - **GPU overlay**: SDF shapes rendered on top in the SAME render pass
-  - **Zero readback**: `FlushPixmap()` uploads CPU pixmap without GPU→CPU readback
-  - **Partial upload**: `MarkDirtyRegion` uploads only dirty area (62KB vs 1.92MB)
-  - GPU load: 10% → 8% for single spinner (zero readback, 1 render pass instead of 2)
-  - Dirty collector: `Bounds()` fallback for widgets without `ScreenBounds()`
+- **Scene composition compositor** (ADR-007 Phase 4-5) — retained-mode rendering with display list caching:
+  - **Full DrawTree every frame** via `render.Canvas` (gg.Context GPU pipeline)
+  - **RepaintBoundary scene.Scene cache**: clean boundaries replay cached display lists via `ReplayScene` (Push/Translate/GPUSceneRenderer/Pop); dirty boundaries re-record
+  - **Single GPU render pass**: all shapes (SDF, text, paths) queued into gg.Context, flushed via `FlushGPUWithView`
+  - **No persistent CPU pixmap**: eliminated `drawDirtyRegions` union clip that caused jitter
+  - **No RasterizerAnalytic hack**: GPU SDF shapes work natively (shadows, rounded corners)
+  - Taskmanager GPU: 7-18% → 0-1%; IDE: hover lag eliminated; signals: text stable
 
-- **Incremental rendering pipeline** (ADR-004) — enterprise-grade retained-mode rendering:
-  - **Frame skip**: `DrawTo()` returns false when nothing changed (0 CPU idle)
-  - **Persistent pixmap**: dirty-region-only redraw without clearing entire canvas
-  - **dirty.Tracker integration**: per-frame region collection, merge optimization, full-repaint fallback
-  - **Spatial skip**: `drawWidgetsInRegion()` skips widgets outside dirty region via ScreenBounds
-  - **ListView auto RepaintBoundary**: each visible item wrapped for per-item cache hit/miss
-  - **DrawStats.CachedWidgets**: RepaintBoundary cache hits reported via DrawStatsProvider
-  - **Tracker.Intersects() fast path**: O(regions) spatial check before O(tree_depth) tree walk
-  - **Centralized ImageCache**: LRU eviction (64MB default), thread-safe, per-Window lifecycle
-  - 82 new tests across 5 phases
+- **Granular widget invalidation** (INVAL-001) — 11 interactive widgets migrated from `ctx.Invalidate()` (full-tree layout+redraw) to `SetNeedsRedraw + InvalidateRect` (visual-only, no layout):
+  - button, checkbox, radio, slider, dropdown (trigger+menu), tabview, collapsible, treeview, toolbar, titlebar, textfield
+  - 40 `ctx.Invalidate()` calls replaced; `ctx.Invalidate()` retained only for structural changes (text input, overlay open/close, expand/collapse)
+  - ~50 regression tests verifying: no full invalidation on hover, needsRedraw set, InvalidateRect matches bounds, callbacks still fire
+
+- **Retained-mode compositor foundations** (ADR-007 Phase 1-3):
+  - **Upward dirty propagation** O(depth): `SetNeedsRedraw` → walks UP to nearest RepaintBoundary → stops
+  - **RepaintBoundary display list cache**: `scene.Scene` per boundary (replaces image.RGBA/GPU texture)
+  - **SceneCanvas vector text**: `scene.DrawText` (glyph outlines, scalable, enterprise-quality)
+  - **RasterCache**: Flutter-pattern stability tracking for GPU texture promotion
+  - **ListView hover**: `markItemDirty` on 2 items, not `ctx.Invalidate()` on 14
 
 - **offscreen** — new `ui/offscreen` package for headless widget rendering without GPU/window/app.
   `offscreen.NewRenderer(w, h)` creates a CPU-only renderer; `.Render(widget)` lays out and draws;
   `.Image()` returns `*image.RGBA`. Options: `WithTheme`, `WithScale` (HiDPI), `WithBackground`.
   Material 3 light theme applied by default. ([#75](https://github.com/gogpu/ui/issues/75))
 
-- **Slide and Fade transition widgets** — Flutter-style animation wrappers in `transition/` package:
-  - `transition.NewSlide(child, SlideFrom(FromTop), SlideDuration(300ms))` — animates child position
-    via PushTransform. 8 directions, SlideIn/SlideOut triggers, auto-start on Mount.
-  - `transition.NewFade(child, FadeDuration(200ms))` — animates child opacity.
-    FadeIn/FadeOut triggers, OpacityPusher interface or background-overlay fallback.
-  - Both use `ctx.Now()` time-based animation with configurable easing.
-  - 53 new tests, 98.8% coverage. ([#75](https://github.com/gogpu/ui/issues/75))
+- **Slide and Fade transition widgets** — Flutter-style animation wrappers in `transition/` package.
+  53 new tests, 98.8% coverage. ([#75](https://github.com/gogpu/ui/issues/75))
 
 - **`examples/modular-compositor`** — reference multi-module offscreen rendering example
-  for Magic Mirror-style architectures ([#75](https://github.com/gogpu/ui/issues/75)):
-  - Clock module: renders time via `ui/offscreen` at 1 Hz with M3 theme
-  - Notification module: M3 card with slide-in animation at 60 Hz (ease-out cubic)
-  - Compositor: gogpu window composites module frames at assigned positions
-  - Event-driven: redraws only when modules send new frames
-  - Production notes: migration path from goroutines to Unix socket / shared memory IPC
+  for Magic Mirror-style architectures ([#75](https://github.com/gogpu/ui/issues/75))
 
 ### Performance
 
-- **GPU load reduced 3× for animated widgets** (ADR-006 Phase 2) — spinner GPU: 22% → 7% (small window), 25% → 18% (full screen) on Intel Iris Xe:
-  - **CPU-direct rendering**: progress indicator strokes forced through CPU AnalyticFiller, bypassing GPU SDF accelerator. 48×48 spinner = ~150 pixels — CPU negligible, GPU SDF creates full-window 4× MSAA overhead.
-  - **Damage-aware compositor**: `FlushGPUWithViewDamage` with dirty rect scissor — GPU processes only changed pixels (48×48) instead of full surface (1920×1080). Uses `LoadOpLoad` to preserve previous swapchain content.
-  - **Swapchain warmup**: first 3 frames use `LoadOpClear` + full blit to prime all swapchain buffers before enabling `LoadOpLoad`.
-  - **Conditional `BeginGPUFrame`**: skipped on damage frames to preserve `frameRendered=true` state required for `LoadOpLoad` activation.
+- **Taskmanager GPU load**: 7-18% → 0-1% (scene composition eliminates CPU pixmap upload overhead)
+- **IDE hover**: lag eliminated (no full-tree invalidation on mouse events)
+- **Gallery spinner**: renders at 60fps without neighbor widget jitter (no dirty region union)
 
 ### Fixed
 
-- **Circular progress spinner shape** — changed arc line cap from `LineCapSquare` to `LineCapRound`
-  in both `DefaultPainter` and Material 3 `ProgressPainter`. Square caps on short arc sweeps
-  created a "V"-notch artifact; round caps produce the smooth endpoints per M3 spec.
+- **Visual jitter** in gallery (spinner + progressbar + chart) — eliminated dirty region union clip
+- **Text disappearing** in signals example — eliminated persistent pixmap + partial redraw artifacts
+- **IDE hover lag** — eliminated `ctx.Invalidate()` full-tree walk on every mouse event
+- **Black border** on window edges — background rect sized to GPU surface, not canvas
+- **Circular progress spinner shape** — arc line cap `LineCapRound` per M3 spec
 
 ### Changed (Dependencies)
 
-- **gg** v0.40.0 → **v0.43.2** — blit-only path fix, GPU texture leak fix, type-safe handles, single command buffer compositor
-- **gogpu** v0.26.4 → **v0.29.4** — mouse grab, frameless windows, power preference
+- **gg** v0.40.0 → **v0.43.3+** — scene.AppendWithTranslation, scene fixes, stem hinting, LoadOp damage, opacity API
+- **gogpu** v0.26.4 → **v0.30.0** — event-driven frame pacing, mouse grab, frameless windows
 - **gpucontext** v0.11.0 → **v0.15.0** — type-safe TextureView handles (ADR-018), CursorMode
-- **wgpu** v0.24.4 → **v0.26.6** — Metal cull mode, DWM fix, deferred destruction (indirect)
-- **naga** v0.17.0 → **v0.17.6** — DXIL 94/208 golden parity, ir.TypeSize (indirect)
+- **wgpu** v0.24.4 → **v0.26.8** — Metal cull mode, DWM fix, deferred destruction
+- **naga** v0.17.0 → **v0.17.6** — DXIL 94/208 golden parity, ir.TypeSize
 
 ### Internal
 
-- Moved `toRGBA` from `primitives/repaint_boundary.go` to `internal/render.ToRGBA` — shared by
-  both `RepaintBoundary` and `offscreen.Renderer`, eliminating code duplication.
-- Renamed `cap` parameter to `lineCap` across `ArcStroker` interface and all implementations
-  to fix `redefines-builtin-id` linter warning (revive).
-- Replaced `math.Pow(x, 3)` with `x*x*x` in easing functions per staticcheck QF1005.
+- Removed legacy rendering hacks: `RasterizerAnalytic` force, `paintCPUDirect`, swapchain warmup
+- `Window.ThemeBackground()` made public for compositor access
+- `desktop.Run` uses `RenderModeHostManaged` (full draw, RepaintBoundary cache handles efficiency)
+- `SceneCanvas.ReplayScene` uses `Scene.AppendWithTranslation` for coordinate offsetting
 
 ## [0.1.13] — 2026-04-08
 

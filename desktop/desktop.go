@@ -113,7 +113,7 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	bg := win.ThemeBackground()
 	cc.SetRGBA(float64(bg.R), float64(bg.G), float64(bg.B), float64(bg.A))
 	cc.DrawRectangle(0, 0, float64(sw), float64(sh))
-	cc.Fill()
+	_ = cc.Fill()
 
 	// Full tree draw. RepaintBoundary cache hits replay cached scene.Scene
 	// via render.Canvas.ReplayScene (Push/Translate/GPUSceneRenderer/Pop).
