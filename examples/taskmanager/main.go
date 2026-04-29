@@ -33,6 +33,7 @@ import (
 	"github.com/gogpu/ui/core/progressbar"
 	"github.com/gogpu/ui/desktop"
 	"github.com/gogpu/ui/primitives"
+	"github.com/gogpu/ui/state"
 	"github.com/gogpu/ui/theme"
 	"github.com/gogpu/ui/widget"
 )
@@ -60,7 +61,12 @@ type simState struct {
 	diskChart *linechart.Widget
 	memBar    *progressbar.Widget
 
-	// Current values for reactive text labels.
+	// Reactive signals for collapsible headers.
+	cpuTitle  state.Signal[string]
+	memTitle  state.Signal[string]
+	diskTitle state.Signal[string]
+
+	// Current values for data simulation.
 	cpuPercent  float64
 	memUsedGB   float64
 	memTotalGB  float64
@@ -94,6 +100,9 @@ func main() {
 	)
 
 	sim := &simState{
+		cpuTitle:   state.NewSignal("CPU  0%"),
+		memTitle:   state.NewSignal(fmt.Sprintf("Memory  %.1f/%.0f GB", 0.51*16.0, 16.0)),
+		diskTitle:  state.NewSignal("Disk 0 (C:)  0%"),
 		memTotalGB: 16.0,
 		memSmooth:  0.51,
 		cpuSmooth:  35.0,
@@ -165,7 +174,7 @@ func buildCPUSection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.Title("CPU  0%"),
+		collapsible.TitleFn(func() string { return sim.cpuTitle.Get() }),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),
@@ -207,7 +216,7 @@ func buildMemorySection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.Title(fmt.Sprintf("Memory  %.1f/%.0f GB", sim.memSmooth*sim.memTotalGB, sim.memTotalGB)),
+		collapsible.TitleFn(func() string { return sim.memTitle.Get() }),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),
@@ -243,7 +252,7 @@ func buildDiskSection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.Title("Disk 0 (C:)  0%"),
+		collapsible.TitleFn(func() string { return sim.diskTitle.Get() }),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),
@@ -287,6 +296,11 @@ func runSimulation(sim *simState, gogpuApp *gogpu.App) {
 		sim.diskWriteMB = diskWrite
 		sim.diskChart.PushValue("Read", sim.diskSmooth)
 		sim.diskChart.PushValue("Write", diskWrite)
+
+		// Update reactive headers.
+		sim.cpuTitle.Set(fmt.Sprintf("CPU  %.0f%%", sim.cpuPercent))
+		sim.memTitle.Set(fmt.Sprintf("Memory  %.1f/%.0f GB", sim.memUsedGB, sim.memTotalGB))
+		sim.diskTitle.Set(fmt.Sprintf("Disk 0 (C:)  %.0f%%", sim.diskSmooth))
 
 		// Jitter process/thread counts slightly.
 		sim.processes += rand.IntN(5) - 2
