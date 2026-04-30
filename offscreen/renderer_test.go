@@ -169,6 +169,90 @@ func TestRenderMultipleOptions(t *testing.T) {
 	}
 }
 
+func TestWithFitSize_Text(t *testing.T) {
+	r := offscreen.NewRenderer(0, 0, offscreen.WithFitSize())
+	r.Render(primitives.Text("Hello").FontSize(24))
+
+	img := r.Image()
+	if img == nil {
+		t.Fatal("Image() returned nil")
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() < 10 || bounds.Dy() < 10 {
+		t.Errorf("fit-to-content should produce reasonable size, got %dx%d", bounds.Dx(), bounds.Dy())
+	}
+	if bounds.Dx() > 1000 || bounds.Dy() > 1000 {
+		t.Errorf("fit-to-content should not be huge for short text, got %dx%d", bounds.Dx(), bounds.Dy())
+	}
+}
+
+func TestWithFitSize_Box(t *testing.T) {
+	box := primitives.Box(
+		primitives.Text("Fitted"),
+	).Background(widget.ColorBlue).Padding(10)
+
+	r := offscreen.NewRenderer(0, 0, offscreen.WithFitSize())
+	r.Render(box)
+
+	img := r.Image()
+	if img == nil {
+		t.Fatal("Image() returned nil")
+	}
+	if isBlank(img) {
+		t.Error("fit-to-content box should not be blank")
+	}
+}
+
+func TestWithFitSize_WithMaxSize(t *testing.T) {
+	r := offscreen.NewRenderer(0, 0,
+		offscreen.WithFitSize(),
+		offscreen.WithMaxSize(100, 50),
+	)
+	r.Render(primitives.Text("This is a long text that should be constrained").FontSize(24))
+
+	img := r.Image()
+	if img == nil {
+		t.Fatal("Image() returned nil")
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() > 100 {
+		t.Errorf("width should be capped at 100, got %d", bounds.Dx())
+	}
+	if bounds.Dy() > 50 {
+		t.Errorf("height should be capped at 50, got %d", bounds.Dy())
+	}
+}
+
+func TestWithFitSize_WithBackground(t *testing.T) {
+	r := offscreen.NewRenderer(0, 0,
+		offscreen.WithFitSize(),
+		offscreen.WithBackground(widget.ColorWhite),
+	)
+	r.Render(primitives.Text("BG test").FontSize(16))
+
+	img := r.Image()
+	if img == nil {
+		t.Fatal("Image() returned nil")
+	}
+	if isBlank(img) {
+		t.Error("fit-to-content with background should not be blank")
+	}
+}
+
+func TestWithFitSize_ExplicitDimensionsIgnored(t *testing.T) {
+	r := offscreen.NewRenderer(9999, 9999, offscreen.WithFitSize())
+	r.Render(primitives.Text("Small").FontSize(12))
+
+	img := r.Image()
+	if img == nil {
+		t.Fatal("Image() returned nil")
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() >= 9999 || bounds.Dy() >= 9999 {
+		t.Errorf("fitSize should override explicit dimensions, got %dx%d", bounds.Dx(), bounds.Dy())
+	}
+}
+
 // isBlank reports whether every pixel in the image has zero alpha.
 func isBlank(img *image.RGBA) bool {
 	for i := 3; i < len(img.Pix); i += 4 {
