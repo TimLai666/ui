@@ -47,7 +47,7 @@ const (
 const (
 	renderModeHostManagedStr      = "HostManaged"
 	renderModeFrameworkManagedStr = "FrameworkManaged"
-	renderModeUnknownStr         = "Unknown"
+	renderModeUnknownStr          = "Unknown"
 )
 
 // String returns a human-readable name for the render mode.

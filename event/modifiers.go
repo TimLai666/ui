@@ -100,6 +100,7 @@ func (m Modifiers) Without(mod Modifiers) Modifiers {
 // Example:
 //
 //	(ModCtrl | ModShift).String() // "Ctrl+Shift"
+//
 // Modifier string constants.
 const (
 	modNoneStr = "None"
