@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.17] — 2026-05-01
+
+### Added
+
+- **Offscreen fit-to-content rendering** (ADR-008, [#87](https://github.com/gogpu/ui/issues/87), @AgentNemo00) — `offscreen.WithFitSize()` measures widget preferred size before allocating canvas. `offscreen.WithMaxSize(w, h)` constrains expansion. Follows Flutter/Qt6/SwiftUI/Compose measure-then-render pattern. 5 new tests.
+
+### Changed (Dependencies)
+
+- **gg** v0.43.6 → **v0.43.7** (wgpu v0.26.12, gpucontext v0.16.0, naga v0.17.10)
+- **gogpu** v0.30.3 → **v0.31.0** (runtime fullscreen toggle on all platforms)
+- **gpucontext** v0.15.0 → **v0.16.0** (WindowChrome.SetFullscreen/IsFullscreen)
+
 ## [0.1.16] — 2026-04-29
 
 ### Changed (Dependencies)
