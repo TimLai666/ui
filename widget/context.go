@@ -289,7 +289,7 @@ func (c CursorType) String() string {
 	case CursorNone:
 		return "None"
 	default:
-		return "Unknown"
+		return unknownStr
 	}
 }
 

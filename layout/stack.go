@@ -11,6 +11,10 @@ const (
 	alignStrEnd     = "End"
 	alignStrStretch = "Stretch"
 	alignStrUnknown = "Unknown"
+
+	stackVStackStr = "vstack"
+	stackHStackStr = "hstack"
+	stackZStackStr = "zstack"
 )
 
 // StackDirection specifies the direction for stack layouts.
@@ -74,11 +78,11 @@ type StackLayout struct {
 func (s *StackLayout) Name() string {
 	switch s.Direction {
 	case StackVertical:
-		return "vstack"
+		return stackVStackStr
 	case StackHorizontal:
-		return "hstack"
+		return stackHStackStr
 	case StackZ:
-		return "zstack"
+		return stackZStackStr
 	default:
 		return "stack"
 	}
@@ -321,7 +325,7 @@ type ZStackLayout struct {
 
 // Name returns "zstack".
 func (z *ZStackLayout) Name() string {
-	return "zstack"
+	return stackZStackStr
 }
 
 // alignFunc is a function that calculates position for a child in a z-stack.

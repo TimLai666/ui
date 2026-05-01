@@ -35,25 +35,37 @@ const (
 	TypeResize
 )
 
+// Event type string constants.
+const (
+	typeMouseStr  = "Mouse"
+	typeKeyStr    = "Key"
+	typeFocusStr  = "Focus"
+	typeWheelStr  = "Wheel"
+	typeTouchStr  = "Touch"
+	typeTextStr   = "Text"
+	typeDropStr   = "Drop"
+	typeResizeStr = "Resize"
+)
+
 // String returns a human-readable name for the event type.
 func (t Type) String() string {
 	switch t {
 	case TypeMouse:
-		return "Mouse"
+		return typeMouseStr
 	case TypeKey:
-		return "Key"
+		return typeKeyStr
 	case TypeFocus:
-		return "Focus"
+		return typeFocusStr
 	case TypeWheel:
-		return "Wheel"
+		return typeWheelStr
 	case TypeTouch:
-		return "Touch"
+		return typeTouchStr
 	case TypeText:
-		return "Text"
+		return typeTextStr
 	case TypeDrop:
-		return "Drop"
+		return typeDropStr
 	case TypeResize:
-		return "Resize"
+		return typeResizeStr
 	default:
 		return unknownStr
 	}

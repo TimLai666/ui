@@ -1,11 +1,18 @@
 package theme
 
-// String constants for mode names.
+// String constants for mode and theme names.
 const (
 	unknownStr = "Unknown"
 	modeLight  = "Light"
 	modeDark   = "Dark"
 	modeSystem = "System"
+
+	themeHighContrast = "High Contrast"
+	themePurple       = "Purple"
+	themeGreen        = "Green"
+	themeOrange       = "Orange"
+	themeAuthor       = "gogpu"
+	themeVersion      = "1.0.0"
 )
 
 // ThemeMode represents the color scheme mode for a theme.

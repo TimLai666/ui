@@ -22,15 +22,15 @@ const (
 func (a StackAlignment) String() string {
 	switch a {
 	case StackAlignStart:
-		return "Start"
+		return alignStart
 	case StackAlignCenter:
-		return "Center"
+		return alignCenter
 	case StackAlignEnd:
-		return "End"
+		return alignEnd
 	case StackAlignStretch:
-		return "Stretch"
+		return alignStretch
 	default:
-		return "Unknown"
+		return alignUnknown
 	}
 }
 
@@ -428,29 +428,41 @@ const (
 	ZAlignBottomRight
 )
 
+// String constants for ZStack alignment names.
+const (
+	zAlignTopLeft     = "TopLeft"
+	zAlignTop         = "Top"
+	zAlignTopRight    = "TopRight"
+	zAlignLeft        = "Left"
+	zAlignRight       = "Right"
+	zAlignBottomLeft  = "BottomLeft"
+	zAlignBottom      = "Bottom"
+	zAlignBottomRight = "BottomRight"
+)
+
 // String returns a string representation of ZStack alignment.
 func (a ZStackAlignment) String() string {
 	switch a {
 	case ZAlignTopLeft:
-		return "TopLeft"
+		return zAlignTopLeft
 	case ZAlignTop:
-		return "Top"
+		return zAlignTop
 	case ZAlignTopRight:
-		return "TopRight"
+		return zAlignTopRight
 	case ZAlignLeft:
-		return "Left"
+		return zAlignLeft
 	case ZAlignCenter:
-		return "Center"
+		return alignCenter
 	case ZAlignRight:
-		return "Right"
+		return zAlignRight
 	case ZAlignBottomLeft:
-		return "BottomLeft"
+		return zAlignBottomLeft
 	case ZAlignBottom:
-		return "Bottom"
+		return zAlignBottom
 	case ZAlignBottomRight:
-		return "BottomRight"
+		return zAlignBottomRight
 	default:
-		return "Unknown"
+		return alignUnknown
 	}
 }
 

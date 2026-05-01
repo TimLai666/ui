@@ -34,23 +34,34 @@ const (
 	MouseDoubleClick
 )
 
+// Mouse event type string constants.
+const (
+	mousePressStr       = "Press"
+	mouseReleaseStr     = "Release"
+	mouseMoveStr        = "Move"
+	mouseEnterStr       = "Enter"
+	mouseLeaveStr       = "Leave"
+	mouseDragStr        = "Drag"
+	mouseDoubleClickStr = "DoubleClick"
+)
+
 // String returns a human-readable name for the mouse event type.
 func (t MouseEventType) String() string {
 	switch t {
 	case MousePress:
-		return "Press"
+		return mousePressStr
 	case MouseRelease:
-		return "Release"
+		return mouseReleaseStr
 	case MouseMove:
-		return "Move"
+		return mouseMoveStr
 	case MouseEnter:
-		return "Enter"
+		return mouseEnterStr
 	case MouseLeave:
-		return "Leave"
+		return mouseLeaveStr
 	case MouseDrag:
-		return "Drag"
+		return mouseDragStr
 	case MouseDoubleClick:
-		return "DoubleClick"
+		return mouseDoubleClickStr
 	default:
 		return unknownStr
 	}
@@ -80,17 +91,25 @@ const (
 	ButtonX2
 )
 
+// Mouse button string constants.
+const (
+	buttonNoneStr   = "None"
+	buttonLeftStr   = "Left"
+	buttonRightStr  = "Right"
+	buttonMiddleStr = "Middle"
+)
+
 // String returns a human-readable name for the button.
 func (b Button) String() string {
 	switch b {
 	case ButtonNone:
-		return "None"
+		return buttonNoneStr
 	case ButtonLeft:
-		return "Left"
+		return buttonLeftStr
 	case ButtonRight:
-		return "Right"
+		return buttonRightStr
 	case ButtonMiddle:
-		return "Middle"
+		return buttonMiddleStr
 	case ButtonX1:
 		return "X1"
 	case ButtonX2:

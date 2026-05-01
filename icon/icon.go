@@ -23,13 +23,16 @@ const (
 	CmdClose
 )
 
+// cmdCloseStr is the string name for the Close command.
+const cmdCloseStr = "Close"
+
 // commandNames maps each Command to its human-readable name.
 var commandNames = [...]string{
 	CmdMoveTo:      "MoveTo",
 	CmdLineTo:      "LineTo",
 	CmdCubicTo:     "CubicTo",
 	CmdQuadraticTo: "QuadraticTo",
-	CmdClose:       "Close",
+	CmdClose:       cmdCloseStr,
 }
 
 // unknownStr is the string representation for unknown/unrecognized values.

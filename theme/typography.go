@@ -106,7 +106,7 @@ const (
 func (s FontStyle) String() string {
 	switch s {
 	case FontStyleNormal:
-		return "Normal"
+		return fontWeightNormal
 	case FontStyleItalic:
 		return "Italic"
 	case FontStyleOblique:

@@ -28,12 +28,15 @@ var textAlignNames = [...]string{
 	TextAlignRight:  "Right",
 }
 
+// unknownStr is the string representation for unknown/unrecognized values.
+const unknownStr = "Unknown"
+
 // String returns a human-readable name for the text alignment.
 func (a TextAlign) String() string {
 	if int(a) < len(textAlignNames) {
 		return textAlignNames[a]
 	}
-	return "Unknown"
+	return unknownStr
 }
 
 // Float64 returns the alignment as a float64 value for rendering backends.

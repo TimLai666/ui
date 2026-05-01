@@ -17,13 +17,19 @@ const (
 	FocusLost
 )
 
+// Focus event type string constants.
+const (
+	focusGainedStr = "Gained"
+	focusLostStr   = "Lost"
+)
+
 // String returns a human-readable name for the focus event type.
 func (t FocusEventType) String() string {
 	switch t {
 	case FocusGained:
-		return "Gained"
+		return focusGainedStr
 	case FocusLost:
-		return "Lost"
+		return focusLostStr
 	default:
 		return unknownStr
 	}

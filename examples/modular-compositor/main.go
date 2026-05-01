@@ -198,6 +198,8 @@ func notificationModule(out chan<- Frame) {
 		displayS = 3   // seconds to show before hiding
 	)
 
+	const notificationModule = "notification"
+
 	m3 := material3.New(widget.Hex(0x2E7D32)) // green seed
 	r := offscreen.NewRenderer(modW, modH,
 		offscreen.WithTheme(m3),
@@ -240,7 +242,7 @@ func notificationModule(out chan<- Frame) {
 			y := int(float64(targetY+modH) - ease*float64(modH))
 
 			out <- Frame{
-				ModuleID: "notification",
+				ModuleID: notificationModule,
 				Image:    img,
 				X:        150, // centered: (600-300)/2
 				Y:        y,
@@ -250,7 +252,7 @@ func notificationModule(out chan<- Frame) {
 
 		// Hold at final position.
 		out <- Frame{
-			ModuleID: "notification",
+			ModuleID: notificationModule,
 			Image:    img,
 			X:        150,
 			Y:        targetY,
@@ -260,7 +262,7 @@ func notificationModule(out chan<- Frame) {
 		time.Sleep(displayS * time.Second)
 
 		out <- Frame{
-			ModuleID: "notification",
+			ModuleID: notificationModule,
 			Image:    nil, // hide
 			X:        150,
 			Y:        targetY,

@@ -9,6 +9,7 @@ const (
 	alignStart   = "Start"
 	alignEnd     = "End"
 	alignCenter  = "Center"
+	alignStretch = "Stretch"
 	alignUnknown = "Unknown"
 )
 
@@ -116,7 +117,7 @@ func (a AlignItems) String() string {
 	case AlignCenter:
 		return alignCenter
 	case AlignStretch:
-		return "Stretch"
+		return alignStretch
 	case AlignBaseline:
 		return "Baseline"
 	default:

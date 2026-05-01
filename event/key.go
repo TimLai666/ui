@@ -20,15 +20,22 @@ const (
 	KeyRepeat
 )
 
+// Key event type string constants.
+const (
+	keyPressStr   = "Press"
+	keyReleaseStr = "Release"
+	keyRepeatStr  = "Repeat"
+)
+
 // String returns a human-readable name for the key event type.
 func (t KeyEventType) String() string {
 	switch t {
 	case KeyPress:
-		return "Press"
+		return keyPressStr
 	case KeyRelease:
-		return "Release"
+		return keyReleaseStr
 	case KeyRepeat:
-		return "Repeat"
+		return keyRepeatStr
 	default:
 		return unknownStr
 	}
@@ -205,6 +212,65 @@ const (
 	KeyUnknown Key = 0
 )
 
+// Key name string constants for keys with multiple usages across the package.
+const (
+	keyF12Str            = "F12"
+	keyF24Str            = "F24"
+	keyDownStr           = "Down"
+	keyLeftStr           = "Left"
+	keyRightStr          = "Right"
+	keyHomeStr           = "Home"
+	keyEndStr            = "End"
+	keyPageUpStr         = "PageUp"
+	keyPageDownStr       = "PageDown"
+	keyEnterStr          = "Enter"
+	keyTabStr            = "Tab"
+	keyBackspaceStr      = "Backspace"
+	keyDeleteStr         = "Delete"
+	keyEscapeStr         = "Escape"
+	keySpaceStr          = "Space"
+	keyLeftShiftStr      = "LeftShift"
+	keyRightShiftStr     = "RightShift"
+	keyLeftCtrlStr       = "LeftCtrl"
+	keyRightCtrlStr      = "RightCtrl"
+	keyLeftAltStr        = "LeftAlt"
+	keyRightAltStr       = "RightAlt"
+	keyLeftSuperStr      = "LeftSuper"
+	keyRightSuperStr     = "RightSuper"
+	keyCapsLockStr       = "CapsLock"
+	keyNumLockStr        = "NumLock"
+	keyScrollLockStr     = "ScrollLock"
+	keyNumpad0Str        = "Numpad0"
+	keyNumpad9Str        = "Numpad9"
+	keyNumpadDecimalStr  = "NumpadDecimal"
+	keyNumpadEnterStr    = "NumpadEnter"
+	keyNumpadAddStr      = "NumpadAdd"
+	keyNumpadSubtractStr = "NumpadSubtract"
+	keyNumpadMultiplyStr = "NumpadMultiply"
+	keyNumpadDivideStr   = "NumpadDivide"
+	keyMinusStr          = "Minus"
+	keyEqualStr          = "Equal"
+	keyLeftBracketStr    = "LeftBracket"
+	keyRightBracketStr   = "RightBracket"
+	keyBackslashStr      = "Backslash"
+	keySemicolonStr      = "Semicolon"
+	keyApostropheStr     = "Apostrophe"
+	keyGraveStr          = "Grave"
+	keyCommaStr          = "Comma"
+	keyPeriodStr         = "Period"
+	keySlashStr          = "Slash"
+	keyPrintScreenStr    = "PrintScreen"
+	keyPauseStr          = "Pause"
+	keyMenuStr           = "Menu"
+	keyMuteStr           = "Mute"
+	keyVolumeUpStr       = "VolumeUp"
+	keyVolumeDownStr     = "VolumeDown"
+	keyMediaPlayStr      = "MediaPlay"
+	keyMediaStopStr      = "MediaStop"
+	keyMediaNextStr      = "MediaNext"
+	keyMediaPrevStr      = "MediaPrev"
+)
+
 // String returns a human-readable name for the key.
 //
 //nolint:gocyclo,cyclop,funlen,maintidx // Key mapping requires a large switch statement by design
@@ -307,7 +373,7 @@ func (k Key) String() string {
 	case KeyF11:
 		return "F11"
 	case KeyF12:
-		return "F12"
+		return keyF12Str
 	case KeyF13:
 		return "F13"
 	case KeyF14:
@@ -331,61 +397,61 @@ func (k Key) String() string {
 	case KeyF23:
 		return "F23"
 	case KeyF24:
-		return "F24"
+		return keyF24Str
 	case KeyUp:
 		return "Up"
 	case KeyDown:
-		return "Down"
+		return keyDownStr
 	case KeyLeft:
-		return "Left"
+		return keyLeftStr
 	case KeyRight:
-		return "Right"
+		return keyRightStr
 	case KeyHome:
-		return "Home"
+		return keyHomeStr
 	case KeyEnd:
-		return "End"
+		return keyEndStr
 	case KeyPageUp:
-		return "PageUp"
+		return keyPageUpStr
 	case KeyPageDown:
-		return "PageDown"
+		return keyPageDownStr
 	case KeyEnter:
-		return "Enter"
+		return keyEnterStr
 	case KeyTab:
-		return "Tab"
+		return keyTabStr
 	case KeyBackspace:
-		return "Backspace"
+		return keyBackspaceStr
 	case KeyDelete:
-		return "Delete"
+		return keyDeleteStr
 	case KeyInsert:
 		return "Insert"
 	case KeyEscape:
-		return "Escape"
+		return keyEscapeStr
 	case KeySpace:
-		return "Space"
+		return keySpaceStr
 	case KeyLeftShift:
-		return "LeftShift"
+		return keyLeftShiftStr
 	case KeyRightShift:
-		return "RightShift"
+		return keyRightShiftStr
 	case KeyLeftCtrl:
-		return "LeftCtrl"
+		return keyLeftCtrlStr
 	case KeyRightCtrl:
-		return "RightCtrl"
+		return keyRightCtrlStr
 	case KeyLeftAlt:
-		return "LeftAlt"
+		return keyLeftAltStr
 	case KeyRightAlt:
-		return "RightAlt"
+		return keyRightAltStr
 	case KeyLeftSuper:
-		return "LeftSuper"
+		return keyLeftSuperStr
 	case KeyRightSuper:
-		return "RightSuper"
+		return keyRightSuperStr
 	case KeyCapsLock:
-		return "CapsLock"
+		return keyCapsLockStr
 	case KeyNumLock:
-		return "NumLock"
+		return keyNumLockStr
 	case KeyScrollLock:
-		return "ScrollLock"
+		return keyScrollLockStr
 	case KeyNumpad0:
-		return "Numpad0"
+		return keyNumpad0Str
 	case KeyNumpad1:
 		return "Numpad1"
 	case KeyNumpad2:
@@ -403,61 +469,61 @@ func (k Key) String() string {
 	case KeyNumpad8:
 		return "Numpad8"
 	case KeyNumpad9:
-		return "Numpad9"
+		return keyNumpad9Str
 	case KeyNumpadDecimal:
-		return "NumpadDecimal"
+		return keyNumpadDecimalStr
 	case KeyNumpadEnter:
-		return "NumpadEnter"
+		return keyNumpadEnterStr
 	case KeyNumpadAdd:
-		return "NumpadAdd"
+		return keyNumpadAddStr
 	case KeyNumpadSubtract:
-		return "NumpadSubtract"
+		return keyNumpadSubtractStr
 	case KeyNumpadMultiply:
-		return "NumpadMultiply"
+		return keyNumpadMultiplyStr
 	case KeyNumpadDivide:
-		return "NumpadDivide"
+		return keyNumpadDivideStr
 	case KeyMinus:
-		return "Minus"
+		return keyMinusStr
 	case KeyEqual:
-		return "Equal"
+		return keyEqualStr
 	case KeyLeftBracket:
-		return "LeftBracket"
+		return keyLeftBracketStr
 	case KeyRightBracket:
-		return "RightBracket"
+		return keyRightBracketStr
 	case KeyBackslash:
-		return "Backslash"
+		return keyBackslashStr
 	case KeySemicolon:
-		return "Semicolon"
+		return keySemicolonStr
 	case KeyApostrophe:
-		return "Apostrophe"
+		return keyApostropheStr
 	case KeyGrave:
-		return "Grave"
+		return keyGraveStr
 	case KeyComma:
-		return "Comma"
+		return keyCommaStr
 	case KeyPeriod:
-		return "Period"
+		return keyPeriodStr
 	case KeySlash:
-		return "Slash"
+		return keySlashStr
 	case KeyPrintScreen:
-		return "PrintScreen"
+		return keyPrintScreenStr
 	case KeyPause:
-		return "Pause"
+		return keyPauseStr
 	case KeyMenu:
-		return "Menu"
+		return keyMenuStr
 	case KeyMute:
-		return "Mute"
+		return keyMuteStr
 	case KeyVolumeUp:
-		return "VolumeUp"
+		return keyVolumeUpStr
 	case KeyVolumeDown:
-		return "VolumeDown"
+		return keyVolumeDownStr
 	case KeyMediaPlay:
-		return "MediaPlay"
+		return keyMediaPlayStr
 	case KeyMediaStop:
-		return "MediaStop"
+		return keyMediaStopStr
 	case KeyMediaNext:
-		return "MediaNext"
+		return keyMediaNextStr
 	case KeyMediaPrev:
-		return "MediaPrev"
+		return keyMediaPrevStr
 	default:
 		return fmt.Sprintf("Key(%d)", k)
 	}

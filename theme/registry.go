@@ -395,50 +395,50 @@ func GlobalRegistry() *ThemeRegistry {
 // Register built-in themes.
 func init() {
 	Register("light", DefaultLight(), ThemeInfo{
-		Name:        "Light",
+		Name:        modeLight,
 		Description: "Default light theme with blue primary colors",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantLight},
 	})
 
 	Register("dark", DefaultDark(), ThemeInfo{
-		Name:        "Dark",
+		Name:        modeDark,
 		Description: "Default dark theme with light blue primary colors",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantDark},
 	})
 
 	Register("high-contrast", DefaultHighContrast(), ThemeInfo{
-		Name:        "High Contrast",
+		Name:        themeHighContrast,
 		Description: "High contrast theme for accessibility (WCAG AAA)",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantLight},
 	})
 
 	Register("purple", Purple(), ThemeInfo{
-		Name:        "Purple",
+		Name:        themePurple,
 		Description: "Theme with purple primary colors",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantLight},
 	})
 
 	Register("green", Green(), ThemeInfo{
-		Name:        "Green",
+		Name:        themeGreen,
 		Description: "Theme with green primary colors",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantLight},
 	})
 
 	Register("orange", Orange(), ThemeInfo{
-		Name:        "Orange",
+		Name:        themeOrange,
 		Description: "Theme with orange primary colors",
-		Author:      "gogpu",
-		Version:     "1.0.0",
+		Author:      themeAuthor,
+		Version:     themeVersion,
 		Variants:    []ThemeVariant{VariantLight},
 	})
 }

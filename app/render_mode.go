@@ -43,14 +43,21 @@ const (
 	RenderModeFrameworkManaged
 )
 
+// Render mode string constants.
+const (
+	renderModeHostManagedStr      = "HostManaged"
+	renderModeFrameworkManagedStr = "FrameworkManaged"
+	renderModeUnknownStr         = "Unknown"
+)
+
 // String returns a human-readable name for the render mode.
 func (m RenderMode) String() string {
 	switch m {
 	case RenderModeHostManaged:
-		return "HostManaged"
+		return renderModeHostManagedStr
 	case RenderModeFrameworkManaged:
-		return "FrameworkManaged"
+		return renderModeFrameworkManagedStr
 	default:
-		return "Unknown"
+		return renderModeUnknownStr
 	}
 }

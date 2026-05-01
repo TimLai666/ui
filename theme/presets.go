@@ -22,7 +22,7 @@ import "github.com/gogpu/ui/widget"
 //	bodyStyle := theme.Typography.BodyMedium
 func DefaultLight() *Theme {
 	return &Theme{
-		Name: "Light",
+		Name: modeLight,
 		Mode: ModeLight,
 		Colors: ColorPalette{
 			// Primary colors - Material Blue
@@ -85,7 +85,7 @@ func DefaultLight() *Theme {
 //	backgroundColor := theme.Colors.Background
 func DefaultDark() *Theme {
 	return &Theme{
-		Name: "Dark",
+		Name: modeDark,
 		Mode: ModeDark,
 		Colors: ColorPalette{
 			// Primary colors - Lighter blue for dark backgrounds
@@ -146,7 +146,7 @@ func DefaultDark() *Theme {
 //	theme := theme.DefaultHighContrast()
 func DefaultHighContrast() *Theme {
 	return &Theme{
-		Name: "High Contrast",
+		Name: themeHighContrast,
 		Mode: ModeLight,
 		Colors: ColorPalette{
 			// High contrast primary colors
@@ -200,7 +200,7 @@ func DefaultHighContrast() *Theme {
 //   - Background: White
 func Purple() *Theme {
 	t := DefaultLight()
-	t.Name = "Purple"
+	t.Name = themePurple
 	t.Colors.Primary = widget.Hex(0x7B1FA2)      // Purple 700
 	t.Colors.PrimaryLight = widget.Hex(0xAE52D4) // Purple 400
 	t.Colors.PrimaryDark = widget.Hex(0x4A0072)  // Purple 900
@@ -220,7 +220,7 @@ func Purple() *Theme {
 //   - Background: White
 func Green() *Theme {
 	t := DefaultLight()
-	t.Name = "Green"
+	t.Name = themeGreen
 	t.Colors.Primary = widget.Hex(0x388E3C)      // Green 700
 	t.Colors.PrimaryLight = widget.Hex(0x6ABF69) // Green 400
 	t.Colors.PrimaryDark = widget.Hex(0x00600F)  // Green 900
@@ -240,7 +240,7 @@ func Green() *Theme {
 //   - Background: White
 func Orange() *Theme {
 	t := DefaultLight()
-	t.Name = "Orange"
+	t.Name = themeOrange
 	t.Colors.Primary = widget.Hex(0xF57C00)      // Orange 700
 	t.Colors.PrimaryLight = widget.Hex(0xFFAD42) // Orange 400
 	t.Colors.PrimaryDark = widget.Hex(0xBB4D00)  // Orange 900
