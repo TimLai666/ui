@@ -397,7 +397,7 @@ func (w *Widget) invalidateItemRect(ctx widget.Context, index int) {
 		ctx.InvalidateRect(w.Bounds())
 		return
 	}
-	if item := w.cache.widgetAt(offset); item != nil {
+	if item := w.cache.widgetAt(offset); item != nil { //nolint:nestif // item recycling with type assertion chain for screen bounds fallback
 		type screenBounder interface{ ScreenBounds() geometry.Rect }
 		if sb, ok := item.(screenBounder); ok {
 			bounds := sb.ScreenBounds()

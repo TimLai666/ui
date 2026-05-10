@@ -1139,9 +1139,7 @@ func TestSpinner_DrawDoesNotInvalidateParentBoundary(t *testing.T) {
 	w.Draw(ctx, canvas)
 
 	// Spinner's OWN boundary should be dirty (it IS the boundary).
-	if w.IsSceneDirty() {
-		// This is expected — spinner invalidates its own scene.
-	}
+	// w.IsSceneDirty() == true is expected — spinner invalidates its own scene.
 
 	// Parent root boundary must NOT be invalidated.
 	if parent.sceneDirtied {

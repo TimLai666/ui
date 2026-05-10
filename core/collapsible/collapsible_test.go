@@ -1206,7 +1206,7 @@ func TestTitleSignal_ResolvesTitle(t *testing.T) {
 	if !found {
 		t.Errorf("expected 'Signal Title' from TitleSignal, drawn texts: %v",
 			func() []string {
-				var texts []string
+				texts := make([]string, 0, len(canvas.drawTexts))
 				for _, c := range canvas.drawTexts {
 					texts = append(texts, c.text)
 				}

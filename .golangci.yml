@@ -204,6 +204,11 @@ linters:
           - revive
           - funlen
           - gocyclo
+          - cyclop
+          - gocognit
+          - unparam
+          - nestif
+          - maintidx
 
 issues:
   max-issues-per-linter: 0

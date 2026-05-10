@@ -106,7 +106,7 @@ type boundaryTexEntry struct {
 // No persistent pixmap. No partial redraw. No RasterizerAnalytic hack.
 // GPU SDF shapes are re-queued every frame via scene replay — no ephemeral
 // shape loss. RepaintBoundary cache ensures O(dirty) re-recording cost.
-func (rl *renderLoop) draw(dc *gogpu.Context) {
+func (rl *renderLoop) draw(dc *gogpu.Context) { //nolint:gocyclo,cyclop // render loop orchestrates multiple pipeline stages (frame, layout, boundary textures, composite, overlays, present)
 	w, h := dc.Width(), dc.Height()
 	if w <= 0 || h <= 0 {
 		return
@@ -173,7 +173,7 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 	// Boundary widgets manage their own dirty state — they don't need
 	// to trigger root re-recording. This prevents offscreen animated
 	// boundaries (spinner) from forcing 60fps root re-recording.
-	if widget.NeedsRedrawInTreeNonBoundary(root) {
+	if widget.NeedsRedrawInTreeNonBoundary(root) { //nolint:nestif // forced root invalidation with callback suppression requires nested type assertions
 		type sceneDirtier interface {
 			IsRepaintBoundary() bool
 			InvalidateScene()
@@ -306,7 +306,7 @@ func (rl *renderLoop) renderBoundaryTextures(w widget.Widget, cc *gg.Context) {
 	rl.renderBoundaryTexturesRecursive(w, cc, 0)
 }
 
-func (rl *renderLoop) renderBoundaryTexturesRecursive(w widget.Widget, cc *gg.Context, depth int) {
+func (rl *renderLoop) renderBoundaryTexturesRecursive(w widget.Widget, cc *gg.Context, depth int) { //nolint:gocognit // boundary tree walk requires type assertion nesting for interface extension pattern
 	if w == nil {
 		return
 	}
@@ -321,7 +321,7 @@ func (rl *renderLoop) renderBoundaryTexturesRecursive(w widget.Widget, cc *gg.Co
 		Parent() widget.Widget
 	}
 
-	if bi, ok := w.(boundaryInfo); ok && bi.IsRepaintBoundary() {
+	if bi, ok := w.(boundaryInfo); ok && bi.IsRepaintBoundary() { //nolint:nestif // boundary rendering with depth guards, visibility culling, and clip storage
 		if depth > 1 {
 			return
 		}
@@ -403,17 +403,18 @@ func (rl *renderLoop) compositeTextures(w widget.Widget, cc *gg.Context, _, _ in
 		// reflects accumulated transforms from parent Draw passes.
 		x, y := float64(screenPos.X), float64(screenPos.Y)
 
-		if isFirst {
+		switch {
+		case isFirst:
 			cc.DrawGPUTextureBase(entry.texture, x, y, bw, bh)
 			isFirst = false
-		} else if entry.hasClip {
+		case entry.hasClip:
 			clip := entry.clipRect
 			cc.Push()
 			cc.ClipRect(float64(clip.Min.X), float64(clip.Min.Y),
 				float64(clip.Width()), float64(clip.Height()))
 			cc.DrawGPUTexture(entry.texture, x, y, bw, bh)
 			cc.Pop()
-		} else {
+		default:
 			cc.DrawGPUTexture(entry.texture, x, y, bw, bh)
 		}
 	})
@@ -438,7 +439,7 @@ func (rl *renderLoop) walkBoundariesRecursive(w widget.Widget, fn func(key uint6
 		ScreenOrigin() geometry.Point
 	}
 
-	if bi, ok := w.(boundaryChecker); ok && bi.IsRepaintBoundary() {
+	if bi, ok := w.(boundaryChecker); ok && bi.IsRepaintBoundary() { //nolint:nestif // boundary walk with type assertion chain for depth guard, origin validation, and viewport culling
 		if depth > 1 {
 			return
 		}

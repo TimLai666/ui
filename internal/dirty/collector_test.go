@@ -411,12 +411,12 @@ type viewportWidget struct {
 	kids []widget.Widget
 }
 
-func newViewportWidget(x, y, w, h float32, children ...widget.Widget) *viewportWidget {
+func newViewportWidget(w, h float32, children ...widget.Widget) *viewportWidget {
 	vp := &viewportWidget{kids: children}
 	vp.SetVisible(true)
 	vp.SetEnabled(true)
-	vp.SetBounds(geometry.NewRect(x, y, w, h))
-	vp.SetScreenOrigin(geometry.Pt(x, y))
+	vp.SetBounds(geometry.NewRect(0, 0, w, h))
+	vp.SetScreenOrigin(geometry.Pt(0, 0))
 	return vp
 }
 
@@ -453,7 +453,7 @@ func TestCollectorViewportClipsDirtyRegion(t *testing.T) {
 	content := newTestWidget(0, 0, 300, 36000)
 	content.SetNeedsRedraw(true)
 
-	viewport := newViewportWidget(0, 0, 300, 300, content)
+	viewport := newViewportWidget( 300, 300, content)
 	viewport.ClearRedraw()
 
 	c.Collect(viewport)
@@ -487,7 +487,7 @@ func TestCollectorSkipsCleanViewportChildren(t *testing.T) {
 	content := newTestWidget(0, 0, 300, 1000)
 	content.ClearRedraw()
 
-	viewport := newViewportWidget(0, 0, 300, 300, content)
+	viewport := newViewportWidget( 300, 300, content)
 	viewport.ClearRedraw()
 
 	c.Collect(viewport)
@@ -657,7 +657,7 @@ func TestCollector_GalleryPattern_ScrollViewWithSections(t *testing.T) {
 	section1.SetParent(vbox)
 	section2.SetParent(vbox)
 
-	scrollView := newViewportWidget(0, 0, 800, 600, vbox)
+	scrollView := newViewportWidget( 800, 600, vbox)
 	vbox.SetParent(scrollView)
 
 	chart.SetNeedsRedraw(true)
@@ -707,7 +707,7 @@ func TestCollector_TaskmanagerPattern_ChartInCollapsible(t *testing.T) {
 	collapsibleCPU.SetParent(vbox)
 	collapsibleMem.SetParent(vbox)
 
-	scrollView := newViewportWidget(0, 0, 700, 800, vbox)
+	scrollView := newViewportWidget( 700, 800, vbox)
 	vbox.SetParent(scrollView)
 
 	cpuChart.SetNeedsRedraw(true)

@@ -66,7 +66,7 @@ func (wc *widgetCache) fullRebuild(start, _, count int, content cdk.Content[Item
 		wc.widgets = make([]widget.Widget, count)
 	}
 
-	if content == nil {
+	if content == nil { //nolint:nestif // cache miss path with lazy initialization and RepaintBoundary wrapping
 		for i := range wc.widgets {
 			wc.widgets[i] = nil
 		}

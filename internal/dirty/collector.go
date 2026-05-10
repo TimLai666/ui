@@ -56,7 +56,7 @@ func (c *Collector) collect(w widget.Widget) {
 	// Viewport containers (ScrollView) act as dirty boundaries.
 	// Flutter pattern: Viewport is RepaintBoundary — Collector clips child
 	// dirty regions to viewport bounds instead of reporting full content.
-	if vc, ok := w.(interface{ IsViewportClip() bool }); ok && vc.IsViewportClip() {
+	if vc, ok := w.(interface{ IsViewportClip() bool }); ok && vc.IsViewportClip() { //nolint:nestif // viewport dirty collection with leaf-dirty pattern and debug logging
 		if c.isWidgetDirty(w) {
 			children := w.Children()
 			hasDirty := c.hasDirtyChild(children)
@@ -123,7 +123,7 @@ func (c *Collector) collectViewportChildren(viewport widget.Widget) {
 			return
 		}
 		children := w.Children()
-		if c.isWidgetDirty(w) {
+		if c.isWidgetDirty(w) { //nolint:nestif // clipped dirty collection with leaf-dirty pattern and debug logging
 			hasDirty := c.hasDirtyChild(children)
 			if collectorDebug {
 				indent := ""
