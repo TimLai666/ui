@@ -148,7 +148,7 @@ func NewOffsetLayer(offset geometry.Point) *OffsetLayerImpl {
 	return l
 }
 
-func (l *OffsetLayerImpl) asContainer() ContainerLayer { return l }
+func (l *OffsetLayerImpl) asContainer() ContainerLayer { return l } //nolint:unused // override for containerBase.Append polymorphism
 func (l *OffsetLayerImpl) Append(child Layer) {
 	child.SetParent(l)
 	l.children = append(l.children, child)
@@ -194,7 +194,7 @@ func NewClipRectLayer(clip geometry.Rect) *ClipRectLayerImpl {
 
 func (l *ClipRectLayerImpl) ClipRect() geometry.Rect     { return l.clipRect }
 func (l *ClipRectLayerImpl) SetClipRect(r geometry.Rect) { l.clipRect = r; l.MarkNeedsCompositing() }
-func (l *ClipRectLayerImpl) asContainer() ContainerLayer { return l }
+func (l *ClipRectLayerImpl) asContainer() ContainerLayer { return l } //nolint:unused // override for containerBase.Append polymorphism (TASK-UI-OPT-005)
 func (l *ClipRectLayerImpl) Append(child Layer) {
 	child.SetParent(l)
 	l.children = append(l.children, child)
@@ -219,7 +219,7 @@ func NewOpacityLayer(opacity float32) *OpacityLayerImpl {
 
 func (l *OpacityLayerImpl) Opacity() float32            { return l.opacity }
 func (l *OpacityLayerImpl) SetOpacity(a float32)        { l.opacity = a; l.MarkNeedsCompositing() }
-func (l *OpacityLayerImpl) asContainer() ContainerLayer { return l }
+func (l *OpacityLayerImpl) asContainer() ContainerLayer { return l } //nolint:unused // override for containerBase.Append polymorphism (TASK-UI-OPT-005)
 func (l *OpacityLayerImpl) Append(child Layer) {
 	child.SetParent(l)
 	l.children = append(l.children, child)

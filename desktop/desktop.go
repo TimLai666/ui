@@ -265,7 +265,7 @@ func (rl *renderLoop) draw(dc *gogpu.Context) {
 // This is the Flutter compositeFrame pattern: addRetained for clean
 // layers (no engine work), addToScene for dirty layers (rebuild).
 // Our equivalent: SetDamageTracking(false) for clean layers.
-func replayLayerTree(layer compositor.Layer, canvas widget.Canvas) {
+func replayLayerTree(layer compositor.Layer, canvas widget.Canvas) { //nolint:unused // retained for future Layer Tree integration (TASK-UI-OPT-005)
 	if layer == nil {
 		return
 	}
