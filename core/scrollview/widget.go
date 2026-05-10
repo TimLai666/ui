@@ -48,6 +48,14 @@ func New(content widget.Widget, opts ...Option) *Widget {
 	w.SetVisible(true)
 	w.SetEnabled(true)
 
+	// Set parent so dirty propagation and viewport clipping work correctly.
+	// Android pattern: invalidateChildInParent() clips dirty rect to parent bounds.
+	// Without this, content.Parent()=nil and clipToParentViewport cannot clip
+	// content bounds (e.g. 36000px) to viewport bounds.
+	if setter, ok := content.(interface{ SetParent(widget.Widget) }); ok {
+		setter.SetParent(w)
+	}
+
 	for _, opt := range opts {
 		opt(&w.cfg)
 	}
@@ -189,8 +197,10 @@ func (w *Widget) tickTrackRepeat(ctx widget.Context) {
 	}
 
 	if elapsed < delay {
-		// Not yet time — request another frame to check again.
-		ctx.Invalidate()
+		// Keep widget dirty so NeedsRedrawInTree triggers root re-recording
+		// on the next frame. InvalidateRect requests the frame.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return
 	}
 
@@ -212,7 +222,7 @@ func (w *Widget) tickTrackRepeat(ctx widget.Context) {
 	w.trackRepeat.count++
 
 	// Request next frame for continuous repeat.
-	ctx.Invalidate()
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // trackRepeatReached returns true if the scrollbar thumb has reached
@@ -336,6 +346,12 @@ func (w *Widget) transformToContentSpace(e event.Event) event.Event {
 		return e
 	}
 }
+
+// IsViewportClip tells the dirty Collector that this widget acts as a
+// viewport boundary (Flutter RenderViewport pattern). The Collector adds
+// this widget's own bounds as the dirty region and does NOT recurse into
+// children — scroll content may have bounds exceeding the viewport.
+func (w *Widget) IsViewportClip() bool { return true }
 
 // Children returns the content widget as the single child.
 func (w *Widget) Children() []widget.Widget {

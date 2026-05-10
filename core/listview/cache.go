@@ -2,7 +2,6 @@ package listview
 
 import (
 	"github.com/gogpu/ui/cdk"
-	"github.com/gogpu/ui/primitives"
 	"github.com/gogpu/ui/widget"
 )
 
@@ -18,11 +17,76 @@ import (
 // Item background, selection, and dividers are painted OUTSIDE the boundary
 // by the painter on the main canvas.
 type widgetCache struct {
-	startIndex int
-	endIndex   int
-	widgets    []widget.Widget
-	boundaries []*primitives.RepaintBoundary
-	valid      bool
+	startIndex    int
+	endIndex      int
+	selectedIndex int
+	hoveredIndex  int
+	widgets       []widget.Widget
+	valid         bool
+}
+
+// rebuildAffected rebuilds only items whose selection or hover state changed.
+// Android RecyclerView pattern: only affected ViewHolders are rebound.
+func (wc *widgetCache) rebuildAffected(start int, content cdk.Content[ItemContext], selectedIndex, hoveredIndex int) {
+	affectedIndices := make(map[int]bool)
+	if wc.selectedIndex != selectedIndex {
+		affectedIndices[wc.selectedIndex] = true
+		affectedIndices[selectedIndex] = true
+	}
+	if wc.hoveredIndex != hoveredIndex {
+		affectedIndices[wc.hoveredIndex] = true
+		affectedIndices[hoveredIndex] = true
+	}
+
+	for idx := range affectedIndices {
+		offset := idx - start
+		if offset < 0 || offset >= len(wc.widgets) {
+			continue
+		}
+		w := content.Render(ItemContext{
+			Index:    idx,
+			Selected: idx == selectedIndex,
+			Focused:  idx == selectedIndex,
+			Hovered:  idx == hoveredIndex,
+		})
+		if w != nil {
+			if setter, ok := w.(interface{ SetRepaintBoundary(bool) }); ok {
+				setter.SetRepaintBoundary(true)
+			}
+		}
+		wc.widgets[offset] = w
+	}
+}
+
+// fullRebuild recreates all items in the range (scroll or first build).
+func (wc *widgetCache) fullRebuild(start, _, count int, content cdk.Content[ItemContext], selectedIndex, hoveredIndex int) {
+	if cap(wc.widgets) >= count {
+		wc.widgets = wc.widgets[:count]
+	} else {
+		wc.widgets = make([]widget.Widget, count)
+	}
+
+	if content == nil {
+		for i := range wc.widgets {
+			wc.widgets[i] = nil
+		}
+	} else {
+		for i := range count {
+			idx := start + i
+			w := content.Render(ItemContext{
+				Index:    idx,
+				Selected: idx == selectedIndex,
+				Focused:  idx == selectedIndex,
+				Hovered:  idx == hoveredIndex,
+			})
+			if w != nil {
+				if setter, ok := w.(interface{ SetRepaintBoundary(bool) }); ok {
+					setter.SetRepaintBoundary(true)
+				}
+			}
+			wc.widgets[i] = w
+		}
+	}
 }
 
 // update ensures the cache contains widgets for the range [start, end).
@@ -36,49 +100,24 @@ func (wc *widgetCache) update(start, end int, content cdk.Content[ItemContext], 
 		return
 	}
 
-	// Check if cache can be reused.
-	if wc.valid && wc.startIndex == start && wc.endIndex == end {
-		return
-	}
-
-	// Rebuild cache.
-	if cap(wc.widgets) >= count {
-		wc.widgets = wc.widgets[:count]
-	} else {
-		wc.widgets = make([]widget.Widget, count)
-	}
-
-	if cap(wc.boundaries) >= count {
-		wc.boundaries = wc.boundaries[:count]
-	} else {
-		wc.boundaries = make([]*primitives.RepaintBoundary, count)
-	}
-
-	if content == nil {
-		for i := range wc.widgets {
-			wc.widgets[i] = nil
-			wc.boundaries[i] = nil
+	// Fast path: same range, only selection/hover changed → rebuild only affected items.
+	// Android RecyclerView pattern: notifyItemChanged(pos) rebinds single ViewHolder.
+	if wc.valid && wc.startIndex == start && wc.endIndex == end && content != nil {
+		if wc.selectedIndex != selectedIndex || wc.hoveredIndex != hoveredIndex {
+			wc.rebuildAffected(start, content, selectedIndex, hoveredIndex)
+			wc.selectedIndex = selectedIndex
+			wc.hoveredIndex = hoveredIndex
+			return
 		}
-	} else {
-		for i := range count {
-			idx := start + i
-			w := content.Render(ItemContext{
-				Index:    idx,
-				Selected: idx == selectedIndex,
-				Focused:  idx == selectedIndex,
-				Hovered:  idx == hoveredIndex,
-			})
-			wc.widgets[i] = w
-			if w != nil {
-				wc.boundaries[i] = primitives.NewRepaintBoundary(w)
-			} else {
-				wc.boundaries[i] = nil
-			}
-		}
+		return // nothing changed
 	}
 
+	// Full rebuild: range changed or first build.
+	wc.fullRebuild(start, end, count, content, selectedIndex, hoveredIndex)
 	wc.startIndex = start
 	wc.endIndex = end
+	wc.selectedIndex = selectedIndex
+	wc.hoveredIndex = hoveredIndex
 	wc.valid = true
 }
 
@@ -92,16 +131,6 @@ func (wc *widgetCache) widgetAt(offset int) widget.Widget {
 	return wc.widgets[offset]
 }
 
-// boundaryAt returns the RepaintBoundary wrapper for the widget at the given
-// offset from startIndex. Returns nil if the offset is out of range or the
-// widget at that offset is nil.
-func (wc *widgetCache) boundaryAt(offset int) *primitives.RepaintBoundary {
-	if offset < 0 || offset >= len(wc.boundaries) {
-		return nil
-	}
-	return wc.boundaries[offset]
-}
-
 // invalidate marks the cache as needing a rebuild.
 func (wc *widgetCache) invalidate() {
 	wc.valid = false
@@ -109,16 +138,6 @@ func (wc *widgetCache) invalidate() {
 
 // clear resets the cache entirely and unmounts boundaries to free pixel caches.
 func (wc *widgetCache) clear() {
-	// Unmount boundaries to release pixel caches.
-	for i := range wc.boundaries {
-		if wc.boundaries[i] != nil {
-			wc.boundaries[i].Unmount()
-		}
-		wc.boundaries[i] = nil
-	}
-	wc.boundaries = wc.boundaries[:0]
-
-	// Clear widget references for GC.
 	for i := range wc.widgets {
 		wc.widgets[i] = nil
 	}

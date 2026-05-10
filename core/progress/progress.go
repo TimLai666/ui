@@ -50,6 +50,14 @@ func New(opts ...Option) *Widget {
 		w.painter = w.cfg.painter
 	}
 
+	// Indeterminate spinners animate every frame (SetNeedsRedraw in Draw).
+	// Mark as RepaintBoundary so dirty propagation stops here — only the
+	// spinner's 48×48 scene re-records, not the entire parent tree.
+	// Flutter: CircularProgressIndicator is always at its own boundary.
+	if w.cfg.indeterminate {
+		w.SetRepaintBoundary(true)
+	}
+
 	return w
 }
 
@@ -94,8 +102,22 @@ func (w *Widget) Layout(_ widget.Context, constraints geometry.Constraints) geom
 		diameter = defaultDiameter
 	}
 
-	preferred := geometry.Sz(diameter, diameter)
-	return constraints.Constrain(preferred)
+	// Circular progress prefers diameter×diameter but must not expand
+	// beyond that when parent gives wide constraints (VBox MinWidth=parent).
+	// Tighten MaxWidth/MaxHeight to diameter so Constrain doesn't expand.
+	// Flutter: CircularProgressIndicator wrapped in SizedBox(diameter).
+	// Circular indicator is intrinsically sized: always diameter×diameter.
+	// Ignore parent MinWidth/MinHeight (VBox gives MinWidth=parent width).
+	// Respect parent MaxWidth/MaxHeight only if smaller than diameter (Tight).
+	sw := diameter
+	sh := diameter
+	if constraints.MaxWidth < sw {
+		sw = constraints.MaxWidth
+	}
+	if constraints.MaxHeight < sh {
+		sh = constraints.MaxHeight
+	}
+	return geometry.Sz(sw, sh)
 }
 
 // Draw renders the circular progress indicator to the canvas.
@@ -164,8 +186,17 @@ func (w *Widget) drawIndeterminate(ctx widget.Context, canvas widget.Canvas, bou
 	}
 
 	w.painter.PaintProgress(canvas, ps)
-	w.MarkRedrawLocal()
-	ctx.InvalidateRect(w.Bounds())
+	w.SetNeedsRedraw(true)
+
+	// Request next animation frame via deferred scheduling (Flutter scheduleFrame
+	// pattern). Does NOT trigger immediate RequestRedraw — the animation pumper
+	// controls actual frame rate. Falls back to immediate InvalidateRect if
+	// AnimationScheduler not available (headless tests, legacy contexts).
+	if sched, ok := ctx.(widget.AnimationScheduler); ok {
+		sched.ScheduleAnimationFrame()
+	} else {
+		ctx.InvalidateRect(w.Bounds())
+	}
 }
 
 // elapsedSeconds returns seconds since the spinner started.

@@ -33,12 +33,36 @@ type BoxStyle struct {
 //
 // Create a BoxWidget with the [Box] constructor. Use [HBox] or [VBox] for
 // convenience constructors with a pre-set direction.
+// CrossAxisAlignment controls how children are positioned on the cross axis.
+// For VBox (vertical): cross axis = horizontal. For HBox: cross axis = vertical.
+// Flutter equivalent: CrossAxisAlignment in Column/Row.
+type CrossAxisAlignment int
+
+const (
+	// CrossAxisStart aligns children to the start (left for VBox, top for HBox).
+	CrossAxisStart CrossAxisAlignment = iota
+	// CrossAxisCenter centers children on the cross axis.
+	CrossAxisCenter
+	// CrossAxisEnd aligns children to the end (right for VBox, bottom for HBox).
+	CrossAxisEnd
+	// CrossAxisStretch stretches children to fill the cross axis (default).
+	CrossAxisStretch
+)
+
+// BoxWidget is a container that lays out children vertically or horizontally
+// with optional padding, background, border, rounded corners, shadow, and gap.
+//
+// BoxWidget implements [widget.Widget], [a11y.Accessible], and [widget.Lifecycle].
+//
+// Create a BoxWidget with the [Box] constructor. Use [HBox] or [VBox] for
+// convenience constructors with a pre-set direction.
 type BoxWidget struct {
 	widget.WidgetBase
 
 	style              BoxStyle
 	direction          Direction
 	directionSignal    state.ReadonlySignal[Direction]
+	crossAlign         CrossAxisAlignment
 	children           []widget.Widget
 	accessibilityLabel string
 }
@@ -156,6 +180,19 @@ func (b *BoxWidget) ShadowLevel(level int) *BoxWidget {
 // direction: vertically for [DirectionVertical], horizontally for [DirectionHorizontal].
 func (b *BoxWidget) Gap(v float32) *BoxWidget {
 	b.style.Gap = v
+	return b
+}
+
+// CrossAlign sets the cross-axis alignment for child widgets.
+// For VBox: controls horizontal alignment (center, start, end, stretch).
+// For HBox: controls vertical alignment.
+// Default is CrossAxisStart (left-aligned for VBox).
+//
+// Flutter equivalent: CrossAxisAlignment on Column/Row.
+//
+//	primitives.VBox(spinner).CrossAlign(primitives.CrossAxisCenter)
+func (b *BoxWidget) CrossAlign(a CrossAxisAlignment) *BoxWidget {
+	b.crossAlign = a
 	return b
 }
 
@@ -303,13 +340,15 @@ func (b *BoxWidget) layoutVerticalSimple(
 		}
 		remaining.MinHeight = 0
 
+		// CrossAxisStretch: give child full width. Others: let child choose.
+		if b.crossAlign != CrossAxisStretch {
+			remaining.MinWidth = 0
+		}
+
 		size := child.Layout(ctx, remaining)
 
 		childX := pad.Left
 		childY := pad.Top + totalHeight
-		child.(interface{ SetBounds(geometry.Rect) }).SetBounds(
-			geometry.FromPointSize(geometry.Pt(childX, childY), size),
-		)
 
 		totalHeight += size.Height
 		if i < childCount-1 {
@@ -318,12 +357,35 @@ func (b *BoxWidget) layoutVerticalSimple(
 		if size.Width > maxChildWidth {
 			maxChildWidth = size.Width
 		}
+
+		child.(interface{ SetBounds(geometry.Rect) }).SetBounds(
+			geometry.FromPointSize(geometry.Pt(childX, childY), size),
+		)
 	}
 
 	contentWidth := maxChildWidth + pad.Horizontal()
 	contentHeight := totalHeight + pad.Vertical()
 
 	resultSize := constraints.Constrain(geometry.Sz(contentWidth, contentHeight))
+
+	// Second pass: apply cross-axis alignment now that we know total width.
+	if b.crossAlign == CrossAxisCenter || b.crossAlign == CrossAxisEnd {
+		availWidth := resultSize.Width - pad.Horizontal()
+		for _, child := range b.children {
+			cb := child.(interface{ Bounds() geometry.Rect }).Bounds()
+			cw := cb.Width()
+			ch := cb.Height()
+			var newX float32
+			if b.crossAlign == CrossAxisCenter {
+				newX = pad.Left + (availWidth-cw)/2
+			} else {
+				newX = pad.Left + availWidth - cw
+			}
+			child.(interface{ SetBounds(geometry.Rect) }).SetBounds(
+				geometry.NewRect(newX, cb.Min.Y, cw, ch),
+			)
+		}
+	}
 	b.SetBounds(geometry.FromPointSize(b.Position(), resultSize))
 	return resultSize
 }
@@ -596,21 +658,15 @@ func (b *BoxWidget) Draw(ctx widget.Context, canvas widget.Canvas) {
 	}
 
 	// Draw children with transform offset for this box's position.
-	// Viewport culling: skip Draw for children outside the clip region.
-	// This prevents offscreen widgets (e.g., spinner scrolled out of
-	// ScrollView) from ticking animations and triggering redraws.
+	// No viewport culling here — DrawChild skip pattern makes offscreen
+	// boundary children cheap (O(1) stamp + skip). Compositor-level culling
+	// via CompositorClip handles GPU texture rendering and compositing.
+	// Flutter: PaintingContext.paintChild always calls paint on all children;
+	// visibility culling is in the compositor (addRetained vs addToScene).
 	canvas.PushTransform(bounds.Min)
-	clipBounds := canvas.ClipBounds()
-	offset := canvas.TransformOffset()
 	for _, child := range b.children {
-		if bg, ok := child.(interface{ Bounds() geometry.Rect }); ok {
-			childRect := bg.Bounds().Translate(offset)
-			if !clipBounds.Intersects(childRect) {
-				continue
-			}
-		}
 		widget.StampScreenOrigin(child, canvas)
-		child.Draw(ctx, canvas)
+		widget.DrawChild(child, ctx, canvas)
 	}
 	canvas.PopTransform()
 

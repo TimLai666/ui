@@ -32,7 +32,7 @@ func handleContentMouseEvent(lv *Widget, ctx widget.Context, e *event.MouseEvent
 			old := lv.hoveredIndex
 			lv.hoveredIndex = noHoveredIndex
 			lv.markItemDirty(old)
-			ctx.InvalidateRect(lv.Bounds())
+			lv.invalidateItemRect(ctx, old)
 		}
 		return false
 	default:
@@ -58,11 +58,12 @@ func handleContentMouseMove(lv *Widget, ctx widget.Context, e *event.MouseEvent)
 		lv.hoveredIndex = idx
 		if old >= 0 {
 			lv.markItemDirty(old)
+			lv.invalidateItemRect(ctx, old)
 		}
 		if idx >= 0 {
 			lv.markItemDirty(idx)
+			lv.invalidateItemRect(ctx, idx)
 		}
-		ctx.InvalidateRect(lv.Bounds())
 	}
 	return false // Don't consume move events.
 }
@@ -199,14 +200,17 @@ func (w *Widget) setSelectedIndex(ctx widget.Context, index int) {
 		w.cfg.selectedIndex = index
 	}
 
-	// Invalidate cache so item widgets rebuild with new selection state.
-	w.cache.invalidate()
+	// Mark old and new selected items dirty (not entire ListView).
+	// No cache.invalidate() — cache.update detects selectedIndex change
+	// and rebuilds only when needed (not the entire visible range).
+	w.markItemDirty(current)
+	w.markItemDirty(index)
 
 	if w.cfg.onSelectionChange != nil {
 		w.cfg.onSelectionChange(index)
 	}
 
-	ctx.Invalidate()
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // noHoveredIndex indicates no item is currently hovered.

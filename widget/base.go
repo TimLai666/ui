@@ -3,6 +3,7 @@ package widget
 import (
 	"sync"
 
+	"github.com/gogpu/gg/scene"
 	"github.com/gogpu/ui/geometry"
 )
 
@@ -52,19 +53,42 @@ type Stopper interface {
 // should occur on the main/UI thread. The mutex is provided for cases
 // where properties need to be queried from callbacks.
 type WidgetBase struct {
-	mu           sync.RWMutex
-	bounds       geometry.Rect  // Cached layout bounds
-	screenOrigin geometry.Point // Window-space origin, set during Draw pass
-	focused      bool           // Whether widget has focus
-	visible      bool           // Whether widget is visible
-	enabled      bool           // Whether widget accepts input
-	needsRedraw  bool           // Whether widget needs re-rendering (retained mode)
-	id           string         // Optional ID for debugging
-	children     []Widget       // Child widgets
-	parent       Widget         // Parent widget (if any)
-	bindings     []Unbinder     // Signal bindings (cleaned up on unmount)
-	effects      []Stopper      // Effects (stopped on unmount)
-	mounted      bool           // Whether widget is currently mounted
+	mu                sync.RWMutex
+	bounds            geometry.Rect  // Cached layout bounds
+	screenOrigin      geometry.Point // Window-space origin, set during Draw pass
+	screenOriginValid bool           // true after first StampScreenOrigin call
+	focused           bool           // Whether widget has focus
+	visible           bool           // Whether widget is visible
+	enabled           bool           // Whether widget accepts input
+	needsRedraw       bool           // Whether widget needs re-rendering (retained mode)
+	id                string         // Optional ID for debugging
+	children          []Widget       // Child widgets
+	parent            Widget         // Parent widget (if any)
+	bindings          []Unbinder     // Signal bindings (cleaned up on unmount)
+	effects           []Stopper      // Effects (stopped on unmount)
+	mounted           bool           // Whether widget is currently mounted
+
+	// --- RepaintBoundary property (ADR-024) ---
+	// When isRepaintBoundary is true, this widget owns a scene.Scene that
+	// caches its subtree rendering. Clean boundaries replay cached content
+	// instead of re-executing Draw on every descendant.
+	isRepaintBoundary     bool
+	boundaryCacheKey      uint64       // Unique ID for dirty-set deduplication
+	cachedScene           *scene.Scene // Recorded display list for the subtree
+	sceneDirty            bool         // Whether the cached scene needs re-recording
+	sceneCacheVersion     uint64       // Monotonic counter (increments on re-record)
+	sceneCacheWidth       int          // Cache dimensions for size-change detection
+	sceneCacheHeight      int          // Cache dimensions for size-change detection
+	onBoundaryDirty       func()       // Callback when boundary transitions to dirty
+	suppressDirtyCallback bool         // Suppressed during Draw recording (animation defers render)
+
+	// --- Compositor clip (for per-boundary GPU textures) ---
+	// When this boundary is skipped during parent BoundaryRecording (DrawChild),
+	// the parent's current clip rect is stored here in screen-space coordinates.
+	// compositeTextures uses this to skip/clip textures outside the viewport
+	// (e.g., ListView items scrolled outside ScrollView bounds).
+	compositorClip    geometry.Rect
+	hasCompositorClip bool
 }
 
 // NewWidgetBase creates a new WidgetBase with default settings.
@@ -357,6 +381,17 @@ func (w *WidgetBase) SetScreenOrigin(origin geometry.Point) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.screenOrigin = origin
+	w.screenOriginValid = true
+}
+
+// IsScreenOriginValid reports whether ScreenOrigin has been set by
+// StampScreenOrigin during a Draw pass. Boundaries with invalid
+// ScreenOrigin (never drawn) should not be composited — their
+// textures would appear at (0,0) instead of the correct position.
+func (w *WidgetBase) IsScreenOriginValid() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.screenOriginValid
 }
 
 // ScreenBounds returns the widget's bounds in window (screen) coordinates.
@@ -381,6 +416,38 @@ func (w *WidgetBase) ScreenBounds() geometry.Rect {
 	defer w.mu.RUnlock()
 	size := w.bounds.Size()
 	return geometry.FromPointSize(w.screenOrigin, size)
+}
+
+// CompositorClip returns the screen-space clip rect for this boundary.
+// Used by compositeTextures to skip textures outside the viewport.
+func (w *WidgetBase) CompositorClip() geometry.Rect {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.compositorClip
+}
+
+// HasCompositorClip returns whether a compositor clip rect has been set.
+func (w *WidgetBase) HasCompositorClip() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.hasCompositorClip
+}
+
+// SetCompositorClip records the screen-space clip rect for this boundary.
+// Called by DrawChild when skipping child boundaries during BoundaryRecording.
+func (w *WidgetBase) SetCompositorClip(clip geometry.Rect) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.compositorClip = clip
+	w.hasCompositorClip = true
+}
+
+// ClearCompositorClip removes the compositor clip rect.
+func (w *WidgetBase) ClearCompositorClip() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.compositorClip = geometry.Rect{}
+	w.hasCompositorClip = false
 }
 
 // LocalToGlobal converts a point from local coordinates to global (window) coordinates.
@@ -457,12 +524,21 @@ func (w *WidgetBase) SetNeedsRedraw(v bool) {
 	w.mu.Lock()
 	alreadyDirty := w.needsRedraw
 	w.needsRedraw = v
+	isBoundary := w.isRepaintBoundary
 	parent := w.parent
 	w.mu.Unlock()
 
 	// Propagate upward only when setting dirty, and only if not already dirty
 	// (O(1) guard prevents redundant walks).
 	if v && !alreadyDirty {
+		// Flutter markNeedsPaint: if THIS widget is a RepaintBoundary,
+		// invalidate its own scene and stop — don't propagate to parent.
+		// This is critical for animated widgets (spinner): dirty stays
+		// at the spinner's boundary, parent tree stays clean.
+		if isBoundary {
+			w.InvalidateScene()
+			return
+		}
 		propagateDirtyUpward(parent)
 	}
 }
@@ -472,11 +548,26 @@ func (w *WidgetBase) SetNeedsRedraw(v bool) {
 // RepaintBoundary is reached, it is marked dirty and propagation stops —
 // this is the Flutter markNeedsPaint pattern (ADR-007).
 //
+// A widget is considered a repaint boundary if:
+//   - It has IsRepaintBoundary() == true (ADR-024 WidgetBase property), OR
+//   - It implements RepaintBoundaryMarker (legacy primitives.RepaintBoundary wrapper).
+//
 // If no RepaintBoundary is found, propagation reaches the root (which is
 // correct — the root boundary encompasses the entire window).
 func propagateDirtyUpward(w Widget) {
 	for w != nil {
-		// If this ancestor is a RepaintBoundary, mark it dirty and stop.
+		// Check ADR-024 property first: WidgetBase.isRepaintBoundary.
+		type boundaryPropChecker interface {
+			IsRepaintBoundary() bool
+			InvalidateScene()
+		}
+		if bp, ok := w.(boundaryPropChecker); ok && bp.IsRepaintBoundary() {
+			bp.InvalidateScene()
+			return
+		}
+
+		// Legacy check: primitives.RepaintBoundary implements RepaintBoundaryMarker
+		// with its own MarkBoundaryDirty() override.
 		if rb, ok := w.(RepaintBoundaryMarker); ok {
 			rb.MarkBoundaryDirty()
 			return

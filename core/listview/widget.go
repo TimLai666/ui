@@ -168,6 +168,13 @@ func (w *Widget) Draw(ctx widget.Context, canvas widget.Canvas) {
 	// Set scroll view bounds to match our bounds.
 	w.scroll.SetBounds(bounds)
 
+	// Stamp screen origin on the internal scroll view so its ScreenBounds()
+	// returns correct window-space coordinates for dirty region collection.
+	// Without this, the scroll view's screenOrigin stays at (0,0) and its
+	// dirty region covers the wrong part of the window (top-left corner
+	// instead of the actual list view position).
+	widget.StampScreenOrigin(w.scroll, canvas)
+
 	// Delegate drawing to the internal scroll view.
 	// The scroll view clips, translates, and draws our virtual content.
 	w.scroll.Draw(ctx, canvas)
@@ -357,27 +364,55 @@ func (w *Widget) AccessibilityActions() []a11y.Action {
 //
 // The hover state is passed to the Painter at paint-time via the
 // virtualContent.Draw method, so the widget tree does NOT need rebuilding.
+//
+// The RepaintBoundary wrapper is marked dirty so the dirty.Collector
+// (via collectViewportChildren) reports only the affected items' bounds
+// clipped to the viewport — not the entire ListView area.
 func (w *Widget) markItemDirty(index int) {
 	offset := index - w.cache.startIndex
 	if offset < 0 || offset >= len(w.cache.widgets) {
-		return // Item is not in the visible/cached range.
+		return
 	}
 
-	// Mark the cached widget as needing redraw.
 	if item := w.cache.widgetAt(offset); item != nil {
 		if setter, ok := item.(interface{ SetNeedsRedraw(bool) }); ok {
 			setter.SetNeedsRedraw(true)
 		}
 	}
 
-	// Also mark the RepaintBoundary wrapper so its cache is invalidated.
-	if rb := w.cache.boundaryAt(offset); rb != nil {
-		rb.InvalidateCache()
-		rb.SetNeedsRedraw(true)
-	}
-
-	// Mark self as needing redraw (paint-only, no layout).
+	// Hover/selection background is drawn by PaintItemBackground in
+	// updateVirtualContent (root boundary recording). Dirty the root
+	// so it re-records with the updated hoveredIndex. With DrawChild
+	// skip, root recording is cheap — items are SKIPPED, only structure
+	// (title, checkboxes, ScrollView frame, hover backgrounds) re-records.
 	w.SetNeedsRedraw(true)
+}
+
+// invalidateItemRect requests redraw for a single item's bounds.
+// Uses item screen bounds (clipped to viewport) instead of entire ListView
+// bounds — produces small dirty rects for overlay and damage tracking.
+func (w *Widget) invalidateItemRect(ctx widget.Context, index int) {
+	offset := index - w.cache.startIndex
+	if offset < 0 || offset >= len(w.cache.widgets) {
+		ctx.InvalidateRect(w.Bounds())
+		return
+	}
+	if item := w.cache.widgetAt(offset); item != nil {
+		type screenBounder interface{ ScreenBounds() geometry.Rect }
+		if sb, ok := item.(screenBounder); ok {
+			bounds := sb.ScreenBounds()
+			if !bounds.IsEmpty() {
+				ctx.InvalidateRect(bounds)
+				return
+			}
+		}
+		type bounder interface{ Bounds() geometry.Rect }
+		if b, ok := item.(bounder); ok {
+			ctx.InvalidateRect(b.Bounds())
+			return
+		}
+	}
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // currentScrollY returns the current vertical scroll offset.

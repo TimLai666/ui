@@ -333,6 +333,9 @@ type ContextImpl struct {
 	// Callback for invalidate rect (called when InvalidateRect is called)
 	onInvalidateRect func(geometry.Rect)
 
+	// Callback for animation frame scheduling (deferred, not immediate)
+	onScheduleAnimation func()
+
 	// Overlay manager
 	overlayManager OverlayManager
 
@@ -610,6 +613,55 @@ func (c *ContextImpl) SetOnInvalidateRect(callback func(geometry.Rect)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.onInvalidateRect = callback
+}
+
+// AnimationScheduler is an optional interface for deferred animation frame
+// requests. Animated widgets (spinners, progress bars) use this instead of
+// ctx.InvalidateRect() to avoid triggering immediate RequestRedraw.
+//
+// The framework's animation pumper controls the actual frame rate —
+// animated widgets just request "paint me on the next animation tick",
+// not "paint me RIGHT NOW".
+//
+// Flutter equivalent: SchedulerBinding.scheduleFrame() — defers to next
+// vsync, does NOT trigger immediate render. Multiple calls coalesce.
+// Qt equivalent: QTimer-driven update() — deferred to event loop.
+// Android equivalent: Choreographer.postFrameCallback() — next vsync.
+//
+// Usage in animated widgets:
+//
+//	if sched, ok := ctx.(widget.AnimationScheduler); ok {
+//	    sched.ScheduleAnimationFrame()
+//	} else {
+//	    ctx.InvalidateRect(w.Bounds()) // fallback: immediate
+//	}
+type AnimationScheduler interface {
+	ScheduleAnimationFrame()
+}
+
+// ScheduleAnimationFrame requests that the render loop stay active for
+// animation. Unlike InvalidateRect, this does NOT trigger an immediate
+// RequestRedraw — it ensures the animation pumper keeps ticking at its
+// configured rate (default 30fps). The next pump tick will render any
+// dirty boundaries.
+func (c *ContextImpl) ScheduleAnimationFrame() {
+	c.mu.RLock()
+	cb := c.onScheduleAnimation
+	c.mu.RUnlock()
+	if cb != nil {
+		cb()
+		return
+	}
+	// Fallback: no animation scheduler wired → use immediate InvalidateRect.
+	// This happens in headless tests and legacy contexts without Window.
+	c.InvalidateRect(geometry.Rect{})
+}
+
+// SetOnScheduleAnimation sets the callback for ScheduleAnimationFrame.
+func (c *ContextImpl) SetOnScheduleAnimation(callback func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onScheduleAnimation = callback
 }
 
 // OverlayManager returns the overlay manager, or nil if none is set.

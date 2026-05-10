@@ -168,12 +168,19 @@ type Canvas interface {
 	// TransformOffset returns the current cumulative transform offset.
 	//
 	// This is the total translation applied by all PushTransform calls
-	// currently on the transform stack. It represents the mapping from
-	// local widget coordinates to window (screen) coordinates.
-	//
-	// Used by [StampScreenOrigin] to compute a widget's screen-space
-	// position during the Draw pass.
+	// currently on the transform stack.
 	TransformOffset() geometry.Point
+
+	// ScreenOriginBase returns the screen-space base offset for this canvas.
+	//
+	// For the main window canvas this is (0,0). For SceneCanvas inside
+	// RepaintBoundary recording, this is the boundary widget's screen position.
+	// Without this, PushTransform(-bounds.Min) for local coords makes
+	// TransformOffset() return local values, and StampScreenOrigin computes
+	// wrong ScreenOrigin → dirty.Collector reports regions at (0,0).
+	//
+	// Flutter equivalent: PaintingContext.offset in RenderObject.paint().
+	ScreenOriginBase() geometry.Point
 
 	// ClipBounds returns the current clip rectangle.
 	//
@@ -194,6 +201,24 @@ type Canvas interface {
 	//
 	// If s is nil or empty, this is a no-op.
 	ReplayScene(s *scene.Scene)
+}
+
+// DamageController can suppress damage tracking during rendering.
+// Implemented by render.Canvas for retained-mode optimization.
+// RepaintBoundary uses this to suppress damage during cached scene replay.
+type DamageController interface {
+	SetDamageTracking(enabled bool)
+}
+
+// BoundaryRecorder is implemented by canvases that record into a boundary's
+// scene.Scene. When DrawChild encounters a child that IS a boundary, it skips
+// drawing — the child boundary has its own PictureLayer in the compositor.
+//
+// Flutter equivalent: PaintingContext knows it's recording into a boundary's
+// PictureRecorder. paintChild checks isRepaintBoundary → appendLayer instead
+// of painting into the current recorder.
+type BoundaryRecorder interface {
+	IsBoundaryRecording() bool
 }
 
 // LineCap specifies how the endpoints of stroked arcs and lines are drawn.
@@ -225,6 +250,75 @@ type SVGFiller interface {
 type SVGRenderer interface {
 	// RenderSVG renders full SVG XML within the given bounds with color override.
 	RenderSVG(svgXML []byte, bounds geometry.Rect, color Color)
+}
+
+// DeviceScaler is an optional interface for canvases that support DPI-aware
+// SVG icon rasterization (ADR-026). When a canvas implements DeviceScaler,
+// the boundary recording infrastructure sets the display scale factor so
+// that SVG icons are rasterized at physical pixel size (ceil(logical * scale))
+// and drawn with an inverse-scale transform for crisp HiDPI rendering.
+//
+// Use type assertion to set the scale after creating a recording canvas:
+//
+//	if ds, ok := recorder.(widget.DeviceScaler); ok {
+//	    ds.SetDeviceScale(ctx.Scale())
+//	}
+//
+// This follows the Qt6/Chromium/IntelliJ pattern where icon assets are
+// rendered at the device's native resolution rather than logical pixel size.
+type DeviceScaler interface {
+	SetDeviceScale(scale float32)
+}
+
+// TextMode controls text rendering strategy selection.
+//
+// Maps 1:1 to gg.TextMode. The default TextModeAuto selects the best strategy
+// automatically based on GPU availability, transform, and font size.
+type TextMode int
+
+const (
+	TextModeAuto      TextMode = iota // auto-select based on context
+	TextModeMSDF                      // GPU MSDF atlas (games, animations)
+	TextModeVector                    // vector outlines (quality-critical)
+	TextModeBitmap                    // CPU bitmap (export, static)
+	TextModeGlyphMask                 // GPU glyph mask (UI labels, <48px)
+)
+
+// textModeNames maps each TextMode to its human-readable name.
+var textModeNames = [...]string{
+	TextModeAuto:      "Auto",
+	TextModeMSDF:      "MSDF",
+	TextModeVector:    "Vector",
+	TextModeBitmap:    "Bitmap",
+	TextModeGlyphMask: "GlyphMask",
+}
+
+// String returns the text mode name.
+func (m TextMode) String() string {
+	if int(m) >= 0 && int(m) < len(textModeNames) {
+		return textModeNames[m]
+	}
+	return unknownStr
+}
+
+// TextModeController is an optional interface for canvases that support
+// explicit text rendering mode control.
+//
+// Use type assertion to check availability:
+//
+//	if tc, ok := canvas.(widget.TextModeController); ok {
+//	    tc.SetTextMode(widget.TextModeMSDF)
+//	    defer tc.SetTextMode(widget.TextModeAuto)
+//	}
+//
+// This is primarily useful during zoom/scale operations where the default
+// auto-selection may cause atlas pressure (issue #94).
+//
+// On SceneCanvas (RepaintBoundary recording), SetTextMode is a no-op because
+// scene text uses TagText which handles mode selection at replay time.
+type TextModeController interface {
+	SetTextMode(mode TextMode)
+	TextMode() TextMode
 }
 
 // Color represents an RGBA color with float32 components.

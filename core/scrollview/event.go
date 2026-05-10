@@ -19,9 +19,9 @@ type trackRepeatState struct {
 	count     int       // number of repeats fired (0 = initial click)
 }
 
-// Track repeat timing constants (Windows convention).
+// Track repeat timing (Qt6 QScrollBar pattern: 500ms initial, 50ms repeat).
 const (
-	trackRepeatInitialDelay = 300 * time.Millisecond
+	trackRepeatInitialDelay = 500 * time.Millisecond
 	trackRepeatInterval     = 50 * time.Millisecond
 )
 
@@ -74,14 +74,20 @@ func handleWheelEvent(w *Widget, ctx widget.Context, e *event.WheelEvent) bool {
 func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	switch e.MouseType {
 	case event.MouseEnter:
-		w.hovered = true
-		ctx.Invalidate()
+		if !w.hovered {
+			w.hovered = true
+			w.MarkRedrawLocal()
+			ctx.InvalidateRect(w.Bounds())
+		}
 		return false // Don't consume enter events -- let children handle them too.
 
 	case event.MouseLeave:
-		w.hovered = false
-		if w.dragging == dragNone {
-			ctx.Invalidate()
+		if w.hovered {
+			w.hovered = false
+			if w.dragging == dragNone {
+				w.MarkRedrawLocal()
+				ctx.InvalidateRect(w.Bounds())
+			}
 		}
 		return false
 
@@ -113,7 +119,8 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		w.dragStart = e.Position
 		w.dragScrollStart = w.cfg.ResolvedScrollY()
 		ctx.RequestFocus(w)
-		ctx.Invalidate()
+		w.MarkRedrawLocal()
+		ctx.InvalidateRect(w.Bounds())
 		return true
 	}
 
@@ -122,7 +129,8 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		w.dragStart = e.Position
 		w.dragScrollStart = w.cfg.ResolvedScrollX()
 		ctx.RequestFocus(w)
-		ctx.Invalidate()
+		w.MarkRedrawLocal()
+		ctx.InvalidateRect(w.Bounds())
 		return true
 	}
 
@@ -188,7 +196,8 @@ func handleMouseRelease(w *Widget, ctx widget.Context, e *event.MouseEvent) bool
 	w.dragging = dragNone
 	w.trackRepeat.active = false
 	if wasDragging || wasRepeating {
-		ctx.Invalidate()
+		w.MarkRedrawLocal()
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return wasDragging || wasRepeating
 }
@@ -204,7 +213,8 @@ func handleMouseMove(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	if !e.Buttons.IsLeftPressed() {
 		w.dragging = dragNone
 		w.trackRepeat.active = false
-		ctx.Invalidate()
+		w.MarkRedrawLocal()
+		ctx.InvalidateRect(w.Bounds())
 		return false
 	}
 
@@ -318,7 +328,8 @@ func setScroll(w *Widget, ctx widget.Context, rawX, rawY float32) {
 		w.cfg.onScroll(newX, newY)
 	}
 
-	ctx.Invalidate()
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // clampScroll clamps a scroll offset to [0, maxScroll].

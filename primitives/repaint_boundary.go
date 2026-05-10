@@ -388,12 +388,20 @@ func (rb *RepaintBoundary) Draw(ctx widget.Context, canvas widget.Canvas) {
 	}
 
 	// Cache hit: boundary is clean and we have a cached scene.
+	// Suppress damage tracking during replay — cached content hasn't changed,
+	// so it must not inflate the gg-level damage list (ADR-021 false positive).
 	if !rb.boundaryDirty && rb.cachedScene != nil {
 		rb.recordCacheHit(ctx)
 		rb.consecutiveHits++
 		rb.evaluatePromotion(w, h)
 		canvas.PushTransform(bounds.Min)
+		if dc, ok := canvas.(widget.DamageController); ok {
+			dc.SetDamageTracking(false)
+		}
 		canvas.ReplayScene(rb.cachedScene)
+		if dc, ok := canvas.(widget.DamageController); ok {
+			dc.SetDamageTracking(true)
+		}
 		canvas.PopTransform()
 		return
 	}

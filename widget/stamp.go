@@ -1,6 +1,13 @@
 package widget
 
-import "github.com/gogpu/ui/geometry"
+import (
+	"fmt"
+	"os"
+
+	"github.com/gogpu/ui/geometry"
+)
+
+var debugStamp = os.Getenv("GOGPU_DEBUG_STAMP") == "1"
 
 // StampScreenOrigin computes and records the screen-space origin on a widget
 // using the canvas's current transform offset and the widget's local bounds.
@@ -30,12 +37,42 @@ func StampScreenOrigin(child Widget, canvas Canvas) {
 	}
 
 	bg, hasBounds := child.(boundsGetter)
-	os, hasOrigin := child.(originSetter)
+	setter, hasOrigin := child.(originSetter)
 	if !hasBounds || !hasOrigin {
 		return
 	}
 
 	childBounds := bg.Bounds()
-	offset := canvas.TransformOffset()
-	os.SetScreenOrigin(offset.Add(childBounds.Min))
+	offset := canvas.TransformOffset().Add(canvas.ScreenOriginBase())
+	screenOrigin := offset.Add(childBounds.Min)
+	if debugStamp {
+		fmt.Fprintf(os.Stderr, "[STAMP] %T bounds=%v canvasOffset=%v → screen=%v\n",
+			child, childBounds, offset, screenOrigin)
+	}
+	setter.SetScreenOrigin(screenOrigin)
+}
+
+// stampCompositorClip records the canvas's current clip rect (in screen space)
+// on a skipped boundary child. compositeTextures uses this to cull textures
+// outside the viewport (e.g., ScrollView clips).
+//
+// The clip rect from the canvas is in the recording coordinate system
+// (local to the parent boundary). We convert to screen space by adding
+// the canvas's screenOriginBase.
+func stampCompositorClip(child Widget, canvas Canvas) {
+	type clipSetter interface {
+		SetCompositorClip(geometry.Rect)
+	}
+	setter, ok := child.(clipSetter)
+	if !ok {
+		return
+	}
+
+	localClip := canvas.ClipBounds()
+	base := canvas.ScreenOriginBase()
+	screenClip := geometry.Rect{
+		Min: localClip.Min.Add(base),
+		Max: localClip.Max.Add(base),
+	}
+	setter.SetCompositorClip(screenClip)
 }

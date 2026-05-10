@@ -213,6 +213,18 @@ func newWindow(
 		}
 	})
 
+	// Wire animation frame scheduling (Flutter scheduleFrame pattern).
+	// Animated widgets call ScheduleAnimationFrame() instead of InvalidateRect()
+	// to avoid triggering immediate RequestRedraw. This keeps the animPumper
+	// alive without forcing a render on every call. The animPumper ticks at
+	// its configured rate (30fps default) and triggers renders.
+	ctx.SetOnScheduleAnimation(func() {
+		w.animIdleFrames = 0
+		if w.animToken == nil && w.wp != nil {
+			w.animToken = newAnimPumper(w.wp)
+		}
+	})
+
 	// Wire scheduler to wake render loop when signals change.
 	// Signal dirty = visual content changed (redraw only).
 	// Layout is NOT needed — widget size/position unchanged.
@@ -248,6 +260,17 @@ func (w *Window) SetRoot(root widget.Widget) {
 	}
 
 	w.root = root
+
+	// ADR-007 Phase 5: Root IS boundary (Flutter RenderView.isRepaintBoundary).
+	// DrawChild skips child boundaries during recording (BoundaryRecorder).
+	// Compositor Layer Tree assembles all boundary scenes by reference.
+	type boundaryEnabler interface {
+		SetRepaintBoundary(bool)
+	}
+	if be, ok := root.(boundaryEnabler); ok {
+		be.SetRepaintBoundary(true)
+	}
+
 	w.needsLayout = true
 	w.needsRedraw = true
 	w.needsFullRepaint = true
@@ -346,9 +369,6 @@ func (w *Window) HandleEvent(e event.Event) {
 
 	// Sync cursor immediately after event dispatch so hover cursor
 	// changes are visible without waiting for the next Frame() tick.
-	// In event-driven mode (ContinuousRender=false), Frame() only
-	// runs when a redraw is needed, but cursor changes from hover
-	// don't trigger redraws.
 	if w.pp != nil {
 		w.syncCursor()
 	}
@@ -420,12 +440,10 @@ func (w *Window) Frame() {
 	// Begin frame timing. DeltaTime = time since last BeginFrame.
 	w.ctx.BeginFrame(frameStart)
 
-	// Reset cursor for this frame — but not during drag operations.
-	// During drag, the dragging widget (SplitView, Slider) sets cursor
-	// on every MouseMove; resetting here would flash default between frames.
-	if w.mouseButtonsHeld == 0 {
-		w.ctx.ResetCursor()
-	}
+	// Cursor is managed in Event handlers (updateHover resets on target
+	// change, widgets set Pointer in MouseEnter/Default in MouseLeave).
+	// No ResetCursor here — Frame runs after Event and would overwrite
+	// the cursor set by the widget, causing flash on next syncCursor.
 
 	// Flush pending signal changes (may trigger new dirty marks).
 	// The scheduler's flushFn sets persistent needsRedraw flags on widgets.
@@ -565,6 +583,21 @@ func (w *Window) LastDrawStats() widget.DrawStats {
 // This is an observability hook for monitoring incremental rendering efficiency.
 func (w *Window) DirtyRegionCount() int {
 	return w.dirtyTracker.RegionCount()
+}
+
+// DirtyRegions returns the list of dirty widget regions from the most
+// recent DrawTo call. Each region corresponds to a widget (or group of
+// nearby widgets) that needed redraw.
+//
+// Used by desktop.Run for debug overlay (GOGPU_DEBUG_DIRTY=1) and for
+// passing damage rects to the OS compositor (SetDamageRects).
+func (w *Window) DirtyRegions() []geometry.Rect {
+	regions := w.dirtyTracker.DirtyRegions()
+	rects := make([]geometry.Rect, len(regions))
+	for i, r := range regions {
+		rects[i] = r.Bounds
+	}
+	return rects
 }
 
 // LastDirtyUnion returns the union of all dirty regions from the most
@@ -995,6 +1028,11 @@ func (w *Window) updateHover(pos geometry.Point, buttons event.ButtonState, mods
 		return
 	}
 
+	// Hover target changed — reset cursor to Default.
+	// Old widget's MouseLeave will set Default, new widget's MouseEnter
+	// will set Pointer if it's interactive.
+	w.ctx.ResetCursor()
+
 	// Send MouseLeave to the old hovered widget.
 	if w.hoveredWidget != nil {
 		leave := event.NewMouseEvent(
@@ -1167,6 +1205,44 @@ func (w *Window) PaintDirtyBoundaries() {
 	w.ClearDirtyBoundaries()
 }
 
+// CollectDirtyRegions runs the dirty collector on the widget tree to populate
+// the dirty tracker. Called by the compositor path in desktop.draw before
+// painting, so debug overlays and damage rects have correct data.
+//
+// In the DrawTo path, this is called internally at the start of DrawTo.
+// The compositor path must call it explicitly since it bypasses DrawTo.
+func (w *Window) CollectDirtyRegions() {
+	if w.root == nil {
+		return
+	}
+	w.dirtyTracker.Reset()
+	w.dirtyCollector.Collect(w.root)
+	w.dirtyTracker.Optimize()
+}
+
+// ClearAfterPaint clears dirty flags and frame state after a paint pass.
+// Called by the compositor path in desktop.draw after PaintBoundaryLayers
+// and overlay drawing are complete.
+//
+// Flutter equivalent: flags are cleared at the end of flushPaint and
+// after compositeFrame. We consolidate cleanup into one call.
+func (w *Window) ClearAfterPaint() {
+	// Do NOT call ClearRedrawInTree here. The paint pass (recordBoundary)
+	// clears dirty flags BEFORE each boundary's Draw, so widgets that
+	// re-dirty during Draw (spinner animation) keep their needsRedraw=true.
+	// ClearRedrawInTree here would erase that re-dirty → spinner not found
+	// by CollectDirtyRegions next frame → cyan overlay empty.
+	w.needsRedraw = false
+	w.needsFullRepaint = false
+}
+
+// DrawOverlays draws overlay widgets (dropdowns, dialogs) on the given canvas.
+// In Flutter, overlays are part of the same widget tree. In our architecture,
+// they are managed separately by overlay.Stack and drawn after the main scene.
+func (w *Window) DrawOverlays(canvas widget.Canvas) {
+	w.overlays.Draw(w.ctx, canvas)
+}
+
 // BoundaryDamageRegion computes the union of screen bounds of all dirty
 // RepaintBoundary instances. This provides a tighter damage region for
 // the compositor when only specific boundaries changed (ADR-007 Phase 3,
@@ -1229,16 +1305,29 @@ func (w *Window) HasDirtyBoundariesOrNeedsRedraw() bool {
 	return w.HasDirtyBoundaries() || w.needsRedraw || w.needsFullRepaint
 }
 
-// animPumper pumps frames at ~60fps for smooth animation.
-// Stopped when animation completes.
+// animPumper pumps frames at a configurable rate for smooth animation.
+// Default 30fps (33ms) — sufficient for spinners and progress indicators.
+// GPU cost scales linearly with frame rate (~0.17%/frame on Intel Iris Xe).
+// 60fps for high-fidelity animations (transitions, physics).
+// Stopped when animation completes (3 consecutive idle frames).
 type animPumper struct {
 	stop chan struct{}
 }
 
+// defaultAnimPumpInterval controls the animation frame pump rate.
+// 33ms ≈ 30fps — visually smooth for indeterminate spinners and progress
+// indicators. Saves ~50% GPU vs 60fps with no perceptible quality loss.
+// Enterprise reference: Qt uses QTimer intervals, Ebiten uses SetTPS.
+const defaultAnimPumpInterval = 33 * time.Millisecond // 30fps
+
 func newAnimPumper(wp gpucontext.WindowProvider) *animPumper {
+	return newAnimPumperWithInterval(wp, defaultAnimPumpInterval)
+}
+
+func newAnimPumperWithInterval(wp gpucontext.WindowProvider, interval time.Duration) *animPumper {
 	p := &animPumper{stop: make(chan struct{})}
 	go func() {
-		ticker := time.NewTicker(16 * time.Millisecond) // ~60fps
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {

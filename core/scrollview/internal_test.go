@@ -1887,6 +1887,82 @@ func TestBuildContentConstraints_Default(t *testing.T) {
 	}
 }
 
+// --- Hover guard regression tests (2026-05-07) ---
+
+// TestScrollViewHoverGuard verifies that repeated MouseEnter events do NOT
+// re-mark the ScrollView as dirty. Before the fix, every MouseEnter set
+// hovered=true and called SetNeedsRedraw unconditionally, causing the entire
+// viewport to appear in the dirty overlay on every hover event.
+// Regression: each MouseEnter marked ScrollView dirty -> full viewport in overlay (2026-05-07)
+func TestScrollViewHoverGuard(t *testing.T) {
+	content := &mockWidget{preferredSize: geometry.Sz(200, 1000)}
+	sv := New(content)
+	ctx := widget.NewContext()
+	sv.Layout(ctx, geometry.Loose(geometry.Sz(200, 300)))
+	sv.SetBounds(geometry.NewRect(0, 0, 200, 300))
+
+	// First MouseEnter — should mark dirty (state changes from not-hovered to hovered).
+	me1 := &event.MouseEvent{
+		MouseType: event.MouseEnter,
+		Position:  geometry.Pt(100, 150),
+	}
+	sv.Event(ctx, me1)
+
+	if !sv.hovered {
+		t.Fatal("precondition: should be hovered after first MouseEnter")
+	}
+
+	// Clear redraw state.
+	sv.ClearRedraw()
+
+	// Second MouseEnter — should NOT mark dirty (already hovered).
+	me2 := &event.MouseEvent{
+		MouseType: event.MouseEnter,
+		Position:  geometry.Pt(100, 150),
+	}
+	sv.Event(ctx, me2)
+
+	if sv.NeedsRedraw() {
+		t.Error("repeated MouseEnter must NOT set needsRedraw; " +
+			"hovered guard should prevent redundant dirty marking")
+	}
+}
+
+// TestScrollViewGranularInvalidation verifies that scrolling uses
+// InvalidateRect (partial invalidation) instead of ctx.Invalidate()
+// (full layout + redraw of entire tree). Before the fix, scroll called
+// ctx.Invalidate() which triggered full layout recalculation.
+// Regression: scroll called ctx.Invalidate() -> full layout + redraw of entire tree (2026-05-07)
+func TestScrollViewGranularInvalidation(t *testing.T) {
+	content := &mockWidget{preferredSize: geometry.Sz(200, 1000)}
+	sv := New(content)
+	ctx := widget.NewContext()
+	constraints := geometry.Loose(geometry.Sz(200, 300))
+
+	sv.Layout(ctx, constraints)
+	sv.SetBounds(geometry.NewRect(0, 0, 200, 300))
+
+	// Scroll down.
+	e := event.NewWheelEvent(
+		geometry.Pt(0, 1),
+		geometry.Pt(100, 150),
+		geometry.Pt(100, 150),
+		0,
+	)
+	sv.Event(ctx, e)
+
+	// Full invalidation (ctx.Invalidate) should NOT have been called.
+	if ctx.IsInvalidated() {
+		t.Error("scroll should use granular invalidation (InvalidateRect), " +
+			"not ctx.Invalidate() which triggers full layout recalculation")
+	}
+
+	// The widget itself should be marked for redraw (partial).
+	if !sv.NeedsRedraw() {
+		t.Error("scroll should mark the scrollview for redraw (granular)")
+	}
+}
+
 // --- Test Helpers ---
 
 // mockWidget is a minimal widget.Widget implementation for testing.
@@ -1991,6 +2067,264 @@ func (c *internalMockCanvas) PopTransform() {
 	c.popTransformCount++
 }
 
-func (c *internalMockCanvas) TransformOffset() geometry.Point { return geometry.Point{} }
-func (c *internalMockCanvas) ClipBounds() geometry.Rect       { return geometry.NewRect(0, 0, 10000, 10000) }
-func (c *internalMockCanvas) ReplayScene(_ *scene.Scene)      {}
+func (c *internalMockCanvas) TransformOffset() geometry.Point  { return geometry.Point{} }
+func (c *internalMockCanvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
+func (c *internalMockCanvas) ClipBounds() geometry.Rect        { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *internalMockCanvas) ReplayScene(_ *scene.Scene)       {}
+
+// --- ScrollView MarkRedrawLocal vs SetNeedsRedraw Tests (ADR-024 regression) ---
+//
+// All visual changes in ScrollView must use SetNeedsRedraw(true) so dirty state
+// propagates to parent RepaintBoundary. MarkRedrawLocal only sets local flag
+// and is invisible when root boundary replays cached scene.
+
+// TestScrollView_HoverDoesNotPropagateToParentBoundary verifies that
+// scrollbar hover is visual-only (MarkRedrawLocal) and does NOT propagate
+// to parent boundary. Propagation would cause full-window dirty on every
+// mouse move over ScrollView.
+func TestScrollView_HoverDoesNotPropagateToParentBoundary(t *testing.T) {
+	content := &mockWidget{} // scrollview internal mockWidget
+	content.SetVisible(true)
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	parent := &scrollbarBoundaryParent{}
+	sv.SetParent(parent)
+	sv.ClearRedraw()
+	parent.invalidated = false
+
+	// Simulate hover enter.
+	me := &event.MouseEvent{
+		MouseType: event.MouseEnter,
+		Position:  geometry.Pt(390, 150), // scrollbar area
+	}
+	handleEvent(sv, ctx, me)
+
+	if !sv.hovered {
+		t.Fatal("ScrollView should be hovered after MouseEnter")
+	}
+
+	if parent.invalidated {
+		t.Error("parent boundary should NOT be invalidated by hover; " +
+			"hover is visual-only (MarkRedrawLocal), not structural")
+	}
+}
+
+// TestScrollView_DragDoesNotPropagateToParentBoundary verifies that
+// scrollbar drag is visual-only and does NOT propagate to parent boundary.
+func TestScrollView_DragDoesNotPropagateToParentBoundary(t *testing.T) {
+	content := &mockWidget{}
+	content.preferredSize = geometry.Sz(400, 2000)
+	content.SetVisible(true)
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	parent := &scrollbarBoundaryParent{}
+	sv.SetParent(parent)
+
+	// Directly set drag state (simulates what handleMousePress does
+	// when press is on scrollbar thumb). This avoids needing exact
+	// scrollbar hit-testing coordinates in unit tests.
+	sv.dragging = dragVertical
+	sv.ClearRedraw()
+	parent.invalidated = false
+
+	// Now simulate drag move — this calls SetNeedsRedraw internally.
+	move := &event.MouseEvent{
+		MouseType: event.MouseMove,
+		Position:  geometry.Pt(395, 100),
+	}
+	handleEvent(sv, ctx, move)
+
+	if parent.invalidated {
+		t.Error("parent boundary should NOT be invalidated by drag visual; " +
+			"drag is visual-only (MarkRedrawLocal)")
+	}
+}
+
+// TestScrollView_MouseReleaseDoesNotPropagateToParentBoundary verifies that
+// ending a drag is visual-only and does NOT propagate.
+func TestScrollView_MouseReleaseDoesNotPropagateToParentBoundary(t *testing.T) {
+	content := &mockWidget{}
+	content.preferredSize = geometry.Sz(400, 2000)
+	content.SetVisible(true)
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	// Set drag state directly (simulates active drag).
+	sv.dragging = dragVertical
+
+	parent := &scrollbarBoundaryParent{}
+	sv.SetParent(parent)
+	sv.ClearRedraw()
+	parent.invalidated = false
+
+	// Mouse release ends drag. Button = ButtonLeft required by handleMouseRelease.
+	release := &event.MouseEvent{
+		MouseType: event.MouseRelease,
+		Position:  geometry.Pt(395, 100),
+		Button:    event.ButtonLeft,
+	}
+	handleEvent(sv, ctx, release)
+
+	if sv.dragging != dragNone {
+		t.Error("drag should be cleared after mouse release")
+	}
+
+	if parent.invalidated {
+		t.Error("parent boundary should NOT be invalidated by release; " +
+			"visual-only (MarkRedrawLocal)")
+	}
+}
+
+// scrollbarBoundaryParent tracks InvalidateScene for scrollbar visual tests.
+type scrollbarBoundaryParent struct {
+	widget.WidgetBase
+	invalidated bool
+}
+
+func (w *scrollbarBoundaryParent) IsRepaintBoundary() bool { return true }
+func (w *scrollbarBoundaryParent) InvalidateScene() {
+	w.WidgetBase.InvalidateScene()
+	w.invalidated = true
+}
+func (w *scrollbarBoundaryParent) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(400, 300))
+}
+func (w *scrollbarBoundaryParent) Draw(_ widget.Context, _ widget.Canvas)     {}
+func (w *scrollbarBoundaryParent) Event(_ widget.Context, _ event.Event) bool { return false }
+func (w *scrollbarBoundaryParent) Children() []widget.Widget                  { return nil }
+
+// --- Scroll Dirty Propagation Tests (ADR-024 regression) ---
+//
+// These tests verify that scroll position changes propagate dirty state
+// upward through the parent chain to the nearest RepaintBoundary.
+// Without this, root RepaintBoundary replays stale cached scene after scroll.
+
+// TestScroll_WheelPropagatesDirtyToParentBoundary verifies that mouse wheel
+// scroll calls SetNeedsRedraw (not MarkRedrawLocal) so dirty state propagates
+// upward to the parent RepaintBoundary, invalidating its scene cache.
+func TestScroll_WheelPropagatesDirtyToParentBoundary(t *testing.T) {
+	content := &mockWidget{preferredSize: geometry.Sz(400, 2000)}
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	// Create a parent box and set it as RepaintBoundary.
+	// Wire parent chain so propagateDirtyUpward can walk up.
+	sv.SetParent(nil) // root-level for now
+
+	// Clear any initial dirty state.
+	sv.ClearRedraw()
+
+	// Simulate mouse wheel scroll inside viewport.
+	wheelEvent := &event.WheelEvent{
+		Position: geometry.Pt(200, 150),
+		Delta:    geometry.Pt(0, 3),
+	}
+	sv.Event(ctx, wheelEvent)
+
+	// After scroll, ScrollView MUST have needsRedraw=true.
+	if !sv.NeedsRedraw() {
+		t.Error("ScrollView.NeedsRedraw() = false after wheel scroll, want true")
+	}
+}
+
+// TestScroll_SetScrollPropagatesDirty verifies that setScroll uses
+// SetNeedsRedraw(true) instead of MarkRedrawLocal() so dirty state
+// propagates to parent RepaintBoundary.
+func TestScroll_SetScrollPropagatesDirty(t *testing.T) {
+	content := &mockWidget{preferredSize: geometry.Sz(400, 2000)}
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	// Setup: track whether InvalidateRect was called.
+	invalidateRectCalled := false
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {
+		invalidateRectCalled = true
+	})
+
+	// Clear initial state.
+	sv.ClearRedraw()
+	invalidateRectCalled = false
+
+	// Scroll programmatically.
+	setScroll(sv, ctx, 0, 100)
+
+	if !sv.NeedsRedraw() {
+		t.Error("ScrollView.NeedsRedraw() = false after setScroll, want true")
+	}
+	if !invalidateRectCalled {
+		t.Error("InvalidateRect not called after setScroll")
+	}
+}
+
+// TestScroll_WheelInvalidatesParentBoundaryScene verifies the full propagation
+// chain: wheel scroll → SetNeedsRedraw → propagateDirtyUpward → parent
+// boundary InvalidateScene. This is the critical path for ADR-024 correctness.
+func TestScroll_WheelInvalidatesParentBoundaryScene(t *testing.T) {
+	content := &mockWidget{preferredSize: geometry.Sz(400, 2000)}
+	sv := New(content, DirectionOpt(Vertical))
+	ctx := widget.NewContext()
+
+	size := sv.Layout(ctx, geometry.Loose(geometry.Sz(400, 300)))
+	sv.SetBounds(geometry.FromPointSize(geometry.Pt(0, 0), size))
+
+	// Create a parent that acts as RepaintBoundary (WidgetBase with boundary flag).
+	// We simulate this by checking if SetNeedsRedraw propagates upward.
+	parentDirtied := false
+	sv.SetParent(&boundaryParentWidget{
+		onInvalidateScene: func() { parentDirtied = true },
+	})
+
+	sv.ClearRedraw()
+
+	// Scroll.
+	wheelEvent := &event.WheelEvent{
+		Position: geometry.Pt(200, 150),
+		Delta:    geometry.Pt(0, 3),
+	}
+	sv.Event(ctx, wheelEvent)
+
+	if !parentDirtied {
+		t.Error("parent RepaintBoundary.InvalidateScene() not called after scroll; " +
+			"setScroll likely uses MarkRedrawLocal() instead of SetNeedsRedraw(true)")
+	}
+}
+
+// boundaryParentWidget simulates a parent RepaintBoundary for testing
+// dirty propagation. Implements IsRepaintBoundary + InvalidateScene.
+type boundaryParentWidget struct {
+	widget.WidgetBase
+	onInvalidateScene func()
+}
+
+func (w *boundaryParentWidget) IsRepaintBoundary() bool { return true }
+func (w *boundaryParentWidget) InvalidateScene() {
+	if w.onInvalidateScene != nil {
+		w.onInvalidateScene()
+	}
+}
+func (w *boundaryParentWidget) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(400, 300))
+}
+func (w *boundaryParentWidget) Draw(_ widget.Context, _ widget.Canvas)     {}
+func (w *boundaryParentWidget) Event(_ widget.Context, _ event.Event) bool { return false }
+func (w *boundaryParentWidget) Children() []widget.Widget                  { return nil }

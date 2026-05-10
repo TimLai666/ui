@@ -90,12 +90,49 @@ func DrawTree(w Widget, ctx Context, canvas Canvas) DrawStats {
 	return stats
 }
 
+// DrawChild draws a child widget with RepaintBoundary support.
+//
+// Container widgets (BoxWidget, VBox, ListView) should call this instead
+// of child.Draw() directly. If the child has IsRepaintBoundary=true
+// (ADR-024 WidgetBase property), drawing is routed through scene caching
+// via drawBoundaryWidget. Otherwise, child.Draw() is called directly.
+//
+// This is the Flutter PaintingContext.paintChild pattern: the parent
+// checks child.isRepaintBoundary before painting.
+func DrawChild(child Widget, ctx Context, canvas Canvas) {
+	if child == nil {
+		return
+	}
+
+	type boundaryChecker interface {
+		IsRepaintBoundary() bool
+	}
+	if bc, ok := child.(boundaryChecker); ok && bc.IsRepaintBoundary() {
+		// Flutter paintChild: skip child boundaries during parent recording.
+		// Each child boundary has own scene + offscreen texture (depth > 1).
+		// Compositor blits all textures. StampScreenOrigin already called
+		// by container before DrawChild for hitTest correctness.
+		if br, ok2 := canvas.(BoundaryRecorder); ok2 && br.IsBoundaryRecording() {
+			StampScreenOrigin(child, canvas)
+			stampCompositorClip(child, canvas)
+			return
+		}
+		drawBoundaryWidget(child, ctx, canvas, nil)
+		return
+	}
+
+	child.Draw(ctx, canvas)
+}
+
 // drawTreeRecursive draws the root widget and collects dirty/clean statistics.
 //
 // It does NOT recurse into children because Widget.Draw() is responsible for
 // drawing its own children (e.g., BoxWidget.Draw draws all children internally).
 // If we recursed, children would be drawn twice. Statistics for the full tree
 // should be collected separately via [CollectDrawStats].
+//
+// ADR-024: If the widget has isRepaintBoundary == true (WidgetBase property),
+// the draw is handled by drawBoundaryWidget which implements scene caching.
 func drawTreeRecursive(w Widget, ctx Context, canvas Canvas, stats *DrawStats) {
 	if w == nil {
 		return
@@ -122,10 +159,19 @@ func drawTreeRecursive(w Widget, ctx Context, canvas Canvas, stats *DrawStats) {
 	// Container widgets stamp their children in their own Draw methods.
 	StampScreenOrigin(w, canvas)
 
-	// Draw the widget. In Sub-Phase 1, all widgets are drawn because gg
-	// clears the pixmap each frame. The widget's own Draw method handles
-	// visibility checks and child drawing. Sub-Phase 2 will add pixel
-	// caching for clean subtrees.
+	// ADR-024: Check if this widget is a WidgetBase-based repaint boundary.
+	// If so, route through drawBoundaryWidget for scene caching.
+	type boundaryChecker interface {
+		IsRepaintBoundary() bool
+	}
+	if bc, ok := w.(boundaryChecker); ok && bc.IsRepaintBoundary() {
+		drawBoundaryWidget(w, ctx, canvas, stats)
+		stats.DrawnWidgets++
+		return
+	}
+
+	// Normal draw path: the widget's own Draw method handles visibility
+	// checks and child drawing.
 	w.Draw(ctx, canvas)
 	stats.DrawnWidgets++
 }

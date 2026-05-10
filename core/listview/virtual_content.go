@@ -64,6 +64,17 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 	// Update the widget cache for the visible range.
 	lv.cache.update(start, end, lv.cfg.itemContent, selectedIdx, lv.hoveredIndex)
 
+	// Wire parent chain on item widgets so dirty propagation
+	// (SetNeedsRedraw → propagateDirtyUpward) can reach the root WidgetBase
+	// boundary. Flutter adoptChild pattern.
+	for i := 0; i < end-start; i++ {
+		if w := lv.cache.widgetAt(i); w != nil {
+			if setter, ok := w.(interface{ SetParent(widget.Widget) }); ok {
+				setter.SetParent(vc)
+			}
+		}
+	}
+
 	// Content width excludes scrollbar inset so items don't render under it.
 	contentWidth := lv.viewportWidth - lv.scroll.ScrollbarInset()
 
@@ -114,15 +125,8 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 			lv.painter.PaintSelection(canvas, ips)
 		}
 
-		// Draw item via RepaintBoundary wrapper (Phase 2, ADR-004).
-		rb := lv.cache.boundaryAt(offset)
-		if rb != nil {
-			rb.Layout(ctx, itemConstraints)
-			rb.SetBounds(itemBounds)
-			rb.Draw(ctx, canvas)
-		} else {
-			w.Draw(ctx, canvas)
-		}
+		widget.StampScreenOrigin(w, canvas)
+		widget.DrawChild(w, ctx, canvas)
 
 		// Draw divider between items (not after the last visible item).
 		if lv.cfg.divider && i < end-1 {
@@ -136,6 +140,11 @@ func (vc *virtualContent) Draw(ctx widget.Context, canvas widget.Canvas) {
 
 	// Check end-reached callback.
 	lv.checkEndReached(end, itemCount)
+
+	// Clear dirty — individual items track their own dirty state.
+	// Without this, virtualContent (bounds=full content height) stays
+	// permanently dirty, causing huge dirty regions in the overlay.
+	vc.ClearRedraw()
 }
 
 // Event delegates events back to the parent list for item interaction.
@@ -146,7 +155,22 @@ func (vc *virtualContent) Event(ctx widget.Context, e event.Event) bool {
 	return handleContentEvent(vc.list, ctx, e)
 }
 
-// Children returns nil; visible item widgets are ephemeral and managed by the cache.
+// Children returns the cached item widgets for dirty-region collection.
+// Their ScreenBounds (set during the previous Draw) allow the dirty.Collector to
+// report item-level dirty rects clipped to the viewport.
 func (vc *virtualContent) Children() []widget.Widget {
-	return nil
+	if vc.list == nil {
+		return nil
+	}
+	widgets := vc.list.cache.widgets
+	if len(widgets) == 0 {
+		return nil
+	}
+	children := make([]widget.Widget, 0, len(widgets))
+	for _, w := range widgets {
+		if w != nil {
+			children = append(children, w)
+		}
+	}
+	return children
 }
