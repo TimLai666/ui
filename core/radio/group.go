@@ -290,14 +290,19 @@ func (g *Group) Event(ctx widget.Context, e event.Event) bool {
 
 	// For mouse events, translate to Group-local coordinates and hit-test.
 	// This mirrors PushTransform(g.Bounds().Min) used in Draw.
+	// MouseEnter/MouseLeave are about the Group container, not items —
+	// items get their own Enter/Leave from updateHover. Do NOT forward
+	// these to children, otherwise items set Pointer cursor on the
+	// entire container area.
 	if me, ok := e.(*event.MouseEvent); ok {
+		if me.MouseType == event.MouseEnter || me.MouseType == event.MouseLeave {
+			return false
+		}
 		local := *me
 		local.Position = me.Position.Sub(g.Bounds().Min)
 		for _, it := range items {
-			if it.Bounds().Contains(local.Position) {
-				if it.Event(ctx, &local) {
-					return true
-				}
+			if it.Bounds().Contains(local.Position) && it.Event(ctx, &local) {
+				return true
 			}
 		}
 		return false

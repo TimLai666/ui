@@ -330,11 +330,12 @@ func (w *Widget) Padding(v float32) *Widget {
 
 // Layout calculates the chart's preferred size within the given constraints.
 func (w *Widget) Layout(_ widget.Context, constraints geometry.Constraints) geometry.Size {
-	preferred := geometry.Sz(
-		defaultWidth+w.padding*2,
-		defaultHeight+w.padding*2,
-	)
-	return constraints.Constrain(preferred)
+	width := constraints.MaxWidth
+	if width <= 0 || width == geometry.Infinity {
+		width = defaultWidth + w.padding*2
+	}
+	height := defaultHeight + w.padding*2
+	return constraints.Constrain(geometry.Sz(width, height))
 }
 
 // Draw renders the chart to the canvas.

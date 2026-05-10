@@ -744,9 +744,10 @@ func (c *recordingCanvas) PushClip(_ geometry.Rect)                  { c.clipCou
 func (c *recordingCanvas) PushClipRoundRect(_ geometry.Rect, _ float32) {
 	c.clipCount++
 }
-func (c *recordingCanvas) PopClip()                        { c.clipCount-- }
-func (c *recordingCanvas) PushTransform(_ geometry.Point)  {}
-func (c *recordingCanvas) PopTransform()                   {}
-func (c *recordingCanvas) TransformOffset() geometry.Point { return geometry.Point{} }
-func (c *recordingCanvas) ClipBounds() geometry.Rect       { return geometry.NewRect(0, 0, 10000, 10000) }
-func (c *recordingCanvas) ReplayScene(_ *scene.Scene)      {}
+func (c *recordingCanvas) PopClip()                         { c.clipCount-- }
+func (c *recordingCanvas) PushTransform(_ geometry.Point)   {}
+func (c *recordingCanvas) PopTransform()                    {}
+func (c *recordingCanvas) TransformOffset() geometry.Point  { return geometry.Point{} }
+func (c *recordingCanvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
+func (c *recordingCanvas) ClipBounds() geometry.Rect        { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *recordingCanvas) ReplayScene(_ *scene.Scene)       {}

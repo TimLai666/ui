@@ -425,6 +425,7 @@ func (w *Widget) Draw(ctx widget.Context, canvas widget.Canvas) {
 
 	// Draw data rows via the scroll view.
 	w.updateScrollBounds()
+	widget.StampScreenOrigin(w.scroll, canvas)
 	w.scroll.Draw(ctx, canvas)
 }
 

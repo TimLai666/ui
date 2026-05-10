@@ -94,8 +94,11 @@ func (w *Widget) IsFocusable() bool {
 
 // Layout calculates the text field's preferred size within the given constraints.
 func (w *Widget) Layout(_ widget.Context, constraints geometry.Constraints) geometry.Size {
-	preferred := geometry.Sz(minFieldWidth, defaultFieldHeight)
-	return constraints.Constrain(preferred)
+	width := constraints.MaxWidth
+	if width <= 0 || width == geometry.Infinity {
+		width = minFieldWidth
+	}
+	return constraints.Constrain(geometry.Sz(width, defaultFieldHeight))
 }
 
 // Draw renders the text field to the canvas.

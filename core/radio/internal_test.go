@@ -1468,6 +1468,7 @@ func (c *internalMockCanvas) PopClip()                                     {}
 func (c *internalMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalMockCanvas) PopTransform()                                {}
 func (c *internalMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *internalMockCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *internalMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *internalMockCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -1874,5 +1875,54 @@ func TestGranularInvalidation_Radio_KeyActivation(t *testing.T) {
 
 	if ctx.IsInvalidated() {
 		t.Error("radio key release should use granular invalidation")
+	}
+}
+
+// --- Cursor regression tests (2026-05-07) ---
+
+// TestRadioGroupDoesNotForwardMouseEnterToItems verifies that Group.Event
+// does NOT forward MouseEnter/MouseLeave to children. Before the fix,
+// Group.Event forwarded all mouse events including MouseEnter to items,
+// causing items to set CursorPointer on the entire container area (since
+// the Group container received the MouseEnter, not the individual item).
+// Regression: Group.Event forwarded MouseEnter to children -> Item set Pointer cursor on container (2026-05-07)
+func TestRadioGroupDoesNotForwardMouseEnterToItems(t *testing.T) {
+	g := NewGroup(
+		Items(
+			ItemDef{Value: "a", Label: "Alpha"},
+			ItemDef{Value: "b", Label: "Beta"},
+			ItemDef{Value: "c", Label: "Gamma"},
+		),
+	)
+	g.SetBounds(geometry.NewRect(0, 0, 200, 120))
+	for i := range g.items {
+		g.items[i].SetBounds(geometry.NewRect(0, float32(i*40), 200, 40))
+	}
+
+	ctx := widget.NewContext()
+
+	// Send MouseEnter to the Group.
+	enterEvt := event.NewMouseEvent(event.MouseEnter, event.ButtonNone, 0,
+		geometry.Pt(100, 60), geometry.Pt(100, 60), event.ModNone)
+	consumed := g.Event(ctx, enterEvt)
+
+	// Group should NOT consume MouseEnter (it filters it out).
+	if consumed {
+		t.Error("Group.Event should not consume MouseEnter (filtered before item dispatch)")
+	}
+
+	// Cursor should remain Default — items should not have been triggered.
+	if ctx.Cursor() != widget.CursorDefault {
+		t.Errorf("cursor = %v, want CursorDefault; MouseEnter must not "+
+			"be forwarded to items", ctx.Cursor())
+	}
+
+	// Verify MouseLeave is also filtered.
+	leaveEvt := event.NewMouseEvent(event.MouseLeave, event.ButtonNone, 0,
+		geometry.Pt(300, 300), geometry.Pt(300, 300), event.ModNone)
+	consumed = g.Event(ctx, leaveEvt)
+
+	if consumed {
+		t.Error("Group.Event should not consume MouseLeave")
 	}
 }

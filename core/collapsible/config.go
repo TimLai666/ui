@@ -9,10 +9,12 @@ import (
 
 // config holds the collapsible section's configuration, set at construction time via options.
 type config struct {
-	title    string
-	titleFn  func() string
-	content  widget.Widget
-	expanded bool
+	title               string
+	titleFn             func() string
+	titleSignal         state.Signal[string]
+	readonlyTitleSignal state.ReadonlySignal[string]
+	content             widget.Widget
+	expanded            bool
 
 	expandedSignal         state.Signal[bool]
 	readonlyExpandedSignal state.ReadonlySignal[bool]
@@ -30,8 +32,14 @@ type config struct {
 }
 
 // ResolvedTitle returns the current header title text.
-// Priority: Fn > Static.
+// Priority: ReadonlySignal > Signal > Fn > Static.
 func (c *config) ResolvedTitle() string {
+	if c.readonlyTitleSignal != nil {
+		return c.readonlyTitleSignal.Get()
+	}
+	if c.titleSignal != nil {
+		return c.titleSignal.Get()
+	}
 	if c.titleFn != nil {
 		return c.titleFn()
 	}

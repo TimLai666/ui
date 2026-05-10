@@ -41,6 +41,11 @@ type Widget struct {
 
 	// Cached content size from last layout.
 	contentSize geometry.Size
+
+	// headerTitle is an internal TextWidget for the header title text.
+	// It participates in Children() so dirty.Collector can track title
+	// changes independently (e.g., TitleSignal updates → cyan overlay).
+	headerTitle widget.Widget
 }
 
 // Default configuration values.
@@ -79,6 +84,9 @@ func New(opts ...Option) *Widget {
 	if w.cfg.ResolvedExpanded() {
 		w.progress = 1.0
 	}
+
+	// Create internal header title widget for dirty tracking.
+	w.headerTitle = newHeaderTextWidget()
 
 	return w
 }
@@ -164,6 +172,14 @@ func (w *Widget) Draw(ctx widget.Context, canvas widget.Canvas) {
 		bounds.Width(), w.cfg.headerHeight,
 	)
 
+	// Set bounds and stamp screen origin on header title widget for dirty tracking.
+	if w.headerTitle != nil {
+		if setter, ok := w.headerTitle.(interface{ SetBounds(geometry.Rect) }); ok {
+			setter.SetBounds(headerBounds)
+		}
+		widget.StampScreenOrigin(w.headerTitle, canvas)
+	}
+
 	// Paint header via the painter.
 	w.painter.PaintHeader(canvas, HeaderState{
 		Title:         w.cfg.ResolvedTitle(),
@@ -228,10 +244,17 @@ func (w *Widget) Event(ctx widget.Context, e event.Event) bool {
 // The content is always returned even when collapsed, to allow the framework
 // to manage lifecycle and focus traversal.
 func (w *Widget) Children() []widget.Widget {
-	if w.cfg.content != nil {
-		return []widget.Widget{w.cfg.content}
+	children := make([]widget.Widget, 0, 2)
+	if w.headerTitle != nil {
+		children = append(children, w.headerTitle)
 	}
-	return nil
+	if w.cfg.content != nil {
+		children = append(children, w.cfg.content)
+	}
+	if len(children) == 0 {
+		return nil
+	}
+	return children
 }
 
 // Mount creates signal bindings for push-based invalidation.
@@ -240,6 +263,19 @@ func (w *Widget) Mount(ctx widget.Context) {
 	sched := ctx.Scheduler()
 	if sched == nil {
 		return
+	}
+	// Bind title signals to HEADER widget (not self) so dirty.Collector
+	// reports header bounds, not full collapsible bounds.
+	titleTarget := w.headerTitle
+	if titleTarget == nil {
+		titleTarget = w
+	}
+	if w.cfg.readonlyTitleSignal != nil {
+		b := state.BindToScheduler(w.cfg.readonlyTitleSignal, titleTarget, sched)
+		w.AddBinding(b)
+	} else if w.cfg.titleSignal != nil {
+		b := state.BindToScheduler(w.cfg.titleSignal, titleTarget, sched)
+		w.AddBinding(b)
 	}
 	if w.cfg.readonlyExpandedSignal != nil {
 		b := state.BindToScheduler(w.cfg.readonlyExpandedSignal, w, sched)

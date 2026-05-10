@@ -25,6 +25,24 @@ func TitleFn(fn func() string) Option {
 	}
 }
 
+// TitleSignal binds the header title to a reactive signal.
+// When the signal value changes, the collapsible header updates automatically
+// via push-based invalidation (signal scheduler → SetNeedsRedraw).
+// Priority: ReadonlySignal > Signal > Fn > Static.
+func TitleSignal(sig state.Signal[string]) Option {
+	return func(c *config) {
+		c.titleSignal = sig
+	}
+}
+
+// TitleReadonlySignal binds the header title to a read-only reactive signal.
+// Highest priority in the title resolution chain.
+func TitleReadonlySignal(sig state.ReadonlySignal[string]) Option {
+	return func(c *config) {
+		c.readonlyTitleSignal = sig
+	}
+}
+
 // Content sets the child widget displayed when expanded.
 func Content(w widget.Widget) Option {
 	return func(c *config) {

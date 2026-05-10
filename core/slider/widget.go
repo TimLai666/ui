@@ -81,21 +81,20 @@ func (w *Widget) IsFocusable() bool {
 
 // Layout calculates the slider's preferred size within the given constraints.
 func (w *Widget) Layout(_ widget.Context, constraints geometry.Constraints) geometry.Size {
-	var preferred geometry.Size
-
 	if w.cfg.orientation == Vertical {
-		preferred = geometry.Sz(
-			thumbRadius*2+w.padding*2,
-			verticalDefaultHeight+w.padding*2,
-		)
-	} else {
-		preferred = geometry.Sz(
-			horizontalDefaultWidth+w.padding*2,
-			thumbRadius*2+w.padding*2,
-		)
+		height := constraints.MaxHeight
+		if height <= 0 || height == geometry.Infinity {
+			height = verticalDefaultHeight + w.padding*2
+		}
+		return constraints.Constrain(geometry.Sz(
+			thumbRadius*2+w.padding*2, height))
 	}
-
-	return constraints.Constrain(preferred)
+	width := constraints.MaxWidth
+	if width <= 0 || width == geometry.Infinity {
+		width = horizontalDefaultWidth + w.padding*2
+	}
+	return constraints.Constrain(geometry.Sz(
+		width, thumbRadius*2+w.padding*2))
 }
 
 // Layout dimension constants.

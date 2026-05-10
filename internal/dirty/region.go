@@ -18,7 +18,7 @@ import (
 // defaultMergeGap is the default pixel gap threshold for merging nearby regions.
 // Two regions separated by less than this distance are merged into one to reduce
 // draw calls at the cost of slightly more overdraw.
-const defaultMergeGap float32 = 16
+const defaultMergeGap float32 = 0
 
 // maxRegionsBeforeFullRepaint is the maximum number of dirty regions before
 // the tracker falls back to a single full-viewport repaint. When many small

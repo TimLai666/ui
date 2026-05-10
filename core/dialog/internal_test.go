@@ -996,6 +996,7 @@ func (c *internalRecordingCanvas) PopClip()                                     
 func (c *internalRecordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *internalRecordingCanvas) PopTransform()                                {}
 func (c *internalRecordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *internalRecordingCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *internalRecordingCanvas) ClipBounds() geometry.Rect {
 	return geometry.NewRect(0, 0, 10000, 10000)
 }

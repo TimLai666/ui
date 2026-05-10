@@ -72,19 +72,21 @@ func TestNew_WithContent(t *testing.T) {
 	w := collapsible.New(collapsible.Content(content))
 
 	children := w.Children()
-	if len(children) != 1 {
-		t.Fatalf("Children() = %d, want 1", len(children))
+	// 2 children: headerTitle (internal) + content.
+	if len(children) != 2 {
+		t.Fatalf("Children() = %d, want 2 (header + content)", len(children))
 	}
-	if children[0] != content {
-		t.Error("child should be the content widget")
+	if children[1] != content {
+		t.Error("second child should be the content widget")
 	}
 }
 
 func TestNew_NoContent(t *testing.T) {
 	w := collapsible.New()
 
-	if children := w.Children(); children != nil {
-		t.Errorf("Children() should be nil without content, got %v", children)
+	children := w.Children()
+	if len(children) != 1 {
+		t.Errorf("Children() len = %d, want 1 (headerTitle widget)", len(children))
 	}
 }
 
@@ -1070,6 +1072,7 @@ func (c *mockCanvas) PopClip()                                     { c.popClipCo
 func (c *mockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *mockCanvas) PopTransform()                                {}
 func (c *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *mockCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *mockCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -1146,5 +1149,68 @@ func (c *recordingCanvas) PopClip()                                     {}
 func (c *recordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordingCanvas) PopTransform()                                {}
 func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *recordingCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *recordingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *recordingCanvas) ReplayScene(_ *scene.Scene)                   {}
+
+// --- TitleSignal Tests ---
+
+func TestTitleSignal_Mount_CreatesBinding(t *testing.T) {
+	sig := state.NewSignal("Initial")
+	w := collapsible.New(
+		collapsible.TitleSignal(sig),
+	)
+
+	dirtyCount := 0
+	sched := state.NewScheduler(func(_ []widget.Widget) {})
+	sched.SetOnDirty(func() { dirtyCount++ })
+	ctx := widget.NewContext()
+	ctx.SetScheduler(sched)
+
+	w.Mount(ctx)
+
+	sig.Set("Updated")
+
+	if dirtyCount == 0 {
+		t.Error("TitleSignal change should mark widget dirty after Mount; " +
+			"binding not created → header updates invisible to dirty tracker")
+	}
+}
+
+func TestTitleSignal_ResolvesTitle(t *testing.T) {
+	sig := state.NewSignal("Signal Title")
+	w := collapsible.New(
+		collapsible.Title("Static"),
+		collapsible.TitleFn(func() string { return "Fn Title" }),
+		collapsible.TitleSignal(sig),
+	)
+
+	// Signal > Fn > Static
+	ctx := widget.NewContext()
+	constraints := geometry.Tight(geometry.Sz(400, 40))
+	w.Layout(ctx, constraints)
+	w.SetBounds(geometry.NewRect(0, 0, 400, 40))
+
+	// Draw and capture title from painter.
+	canvas := &recordingCanvas{}
+	w.Draw(ctx, canvas)
+
+	// Title should come from signal.
+	found := false
+	for _, call := range canvas.drawTexts {
+		if call.text == "Signal Title" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'Signal Title' from TitleSignal, drawn texts: %v",
+			func() []string {
+				var texts []string
+				for _, c := range canvas.drawTexts {
+					texts = append(texts, c.text)
+				}
+				return texts
+			}())
+	}
+}

@@ -230,9 +230,10 @@ func TestCollector_CustomWidgetWithChildren(t *testing.T) {
 	}
 	c.Collect(cw)
 
-	// Custom widget itself + dirty child = 2 regions.
-	if tr.RegionCount() != 2 {
-		t.Errorf("region count = %d, want 2", tr.RegionCount())
+	// Leaf-dirty pattern: custom widget has dirty child → skip self,
+	// report only child. Result: 1 region (child only).
+	if tr.RegionCount() != 1 {
+		t.Errorf("region count = %d, want 1 (leaf child only)", tr.RegionCount())
 	}
 }
 
@@ -319,9 +320,9 @@ func TestCollector_BothParentAndChildDirty(t *testing.T) {
 
 	c.Collect(parent)
 
-	// Both parent and child are dirty — 2 regions (optimization merges later).
-	if tr.RegionCount() != 2 {
-		t.Errorf("region count = %d, want 2", tr.RegionCount())
+	// Leaf-dirty pattern: parent has dirty child → skip parent, report child only.
+	if tr.RegionCount() != 1 {
+		t.Errorf("region count = %d, want 1 (leaf child only)", tr.RegionCount())
 	}
 }
 
@@ -386,9 +387,10 @@ func TestCollectOptimizeIntersect(t *testing.T) {
 	c.Collect(root)
 	tr.Optimize()
 
-	// w1 and w2 should merge (within default 16px gap), w3 stays separate.
-	if tr.RegionCount() != 2 {
-		t.Errorf("after optimize: region count = %d, want 2", tr.RegionCount())
+	// With mergeGap=0, only overlapping regions merge. Adjacent (non-overlapping)
+	// regions stay separate for precise dirty tracking.
+	if tr.RegionCount() != 3 {
+		t.Errorf("after optimize: region count = %d, want 3 (no gap merge)", tr.RegionCount())
 	}
 
 	// Widget in merged region should intersect.
@@ -398,5 +400,364 @@ func TestCollectOptimizeIntersect(t *testing.T) {
 	// Widget far away should not intersect.
 	if tr.Intersects(geometry.NewRect(300, 300, 10, 10)) {
 		t.Error("should not intersect between regions")
+	}
+}
+
+// --- Viewport clip regression tests (2026-05-07) ---
+
+// viewportWidget implements IsViewportClip() to act as a ScrollView-like container.
+type viewportWidget struct {
+	widget.WidgetBase
+	kids []widget.Widget
+}
+
+func newViewportWidget(x, y, w, h float32, children ...widget.Widget) *viewportWidget {
+	vp := &viewportWidget{kids: children}
+	vp.SetVisible(true)
+	vp.SetEnabled(true)
+	vp.SetBounds(geometry.NewRect(x, y, w, h))
+	vp.SetScreenOrigin(geometry.Pt(x, y))
+	return vp
+}
+
+func (w *viewportWidget) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(w.Bounds().Size())
+}
+
+func (w *viewportWidget) Draw(_ widget.Context, _ widget.Canvas) {}
+
+func (w *viewportWidget) Event(_ widget.Context, _ event.Event) bool { return false }
+
+func (w *viewportWidget) Children() []widget.Widget { return w.kids }
+
+func (w *viewportWidget) IsViewportClip() bool { return true }
+
+func (w *viewportWidget) ScreenBounds() geometry.Rect {
+	return geometry.NewRect(
+		w.Bounds().Min.X, w.Bounds().Min.Y,
+		w.Bounds().Width(), w.Bounds().Height(),
+	)
+}
+
+// TestCollectorViewportClipsDirtyRegion verifies that a dirty widget inside
+// a viewport container (IsViewportClip=true) has its dirty region clipped to
+// the viewport bounds. Before the fix, a widget with 36000px height inside
+// a 300px ScrollView would produce a 36000px dirty region, causing the
+// entire window to be repainted.
+// Regression: widget with bounds 36000px inside ScrollView -> huge dirty region (2026-05-07)
+func TestCollectorViewportClipsDirtyRegion(t *testing.T) {
+	tr := NewTracker()
+	c := NewCollector(tr)
+
+	// Large dirty content inside a small viewport.
+	content := newTestWidget(0, 0, 300, 36000)
+	content.SetNeedsRedraw(true)
+
+	viewport := newViewportWidget(0, 0, 300, 300, content)
+	viewport.ClearRedraw()
+
+	c.Collect(viewport)
+
+	if tr.IsEmpty() {
+		t.Fatal("dirty content inside viewport should produce a dirty region")
+	}
+
+	// The dirty region must be clipped to the viewport bounds (300px),
+	// not the full content bounds (36000px).
+	regions := tr.DirtyRegions()
+	for _, r := range regions {
+		if r.Bounds.Height() > 300 {
+			t.Errorf("dirty region height = %v, want <= 300 (viewport clip); "+
+				"Collector must clip dirty regions to viewport bounds",
+				r.Bounds.Height())
+		}
+	}
+}
+
+// TestCollectorSkipsCleanViewportChildren verifies that when a viewport
+// container and all its children are clean, the Collector reports zero
+// dirty regions. This ensures the viewport-specific path does not
+// spuriously generate dirty regions.
+// Regression: ensures viewport clean path produces 0 regions (2026-05-07)
+func TestCollectorSkipsCleanViewportChildren(t *testing.T) {
+	tr := NewTracker()
+	c := NewCollector(tr)
+
+	// Clean content inside clean viewport.
+	content := newTestWidget(0, 0, 300, 1000)
+	content.ClearRedraw()
+
+	viewport := newViewportWidget(0, 0, 300, 300, content)
+	viewport.ClearRedraw()
+
+	c.Collect(viewport)
+
+	if !tr.IsEmpty() {
+		t.Errorf("all-clean viewport should produce 0 dirty regions, got %d",
+			tr.RegionCount())
+	}
+}
+
+// --- Leaf Dirty Region Tests (ADR-024 RepaintBoundary integration) ---
+//
+// When a child widget is dirty (e.g., checkbox hover), propagateDirtyUpward
+// marks all ancestors dirty too. The Collector must report LEAF dirty widget
+// bounds (small rect), NOT parent container bounds (full card).
+//
+// Without this, cyan overlay shows full-window dirty on every hover →
+// appears as "always full repaint" when only a small widget changed.
+
+// TestCollector_LeafDirtyNotParent verifies that when a child is dirty
+// AND its parent is dirty (via propagation), only the CHILD's bounds
+// are reported — not the parent's large bounds.
+func TestCollector_LeafDirtyNotParent(t *testing.T) {
+	// Parent: large card (0,0 → 400,300).
+	parent := newTestWidget(0, 0, 400, 300)
+
+	// Child: small checkbox (10,10 → 200,36).
+	child := newTestWidget(10, 10, 200, 36)
+	child.SetParent(parent)
+	parent.AddChild(child)
+
+	// Simulate propagateDirtyUpward: child dirty → parent dirty.
+	child.SetNeedsRedraw(true)
+	parent.SetNeedsRedraw(true) // marked by propagation
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(parent)
+
+	regions := tr.DirtyRegions()
+
+	// We should get child bounds (small), NOT parent bounds (large).
+	// If parent bounds are reported, it means the overlay will show
+	// full card cyan on every checkbox hover.
+	for _, r := range regions {
+		if r.Bounds.Width() > 250 || r.Bounds.Height() > 100 {
+			t.Errorf("dirty region too large: %v — should be child bounds (~200x36), "+
+				"not parent bounds (~400x300). Collector reports parent container "+
+				"instead of leaf dirty widget.", r.Bounds)
+		}
+	}
+
+	// Must have at least one region (the child).
+	if len(regions) == 0 {
+		t.Error("expected at least 1 dirty region for the dirty child")
+	}
+}
+
+// TestCollector_OnlyLeafDirtyReported verifies that when parent is dirty
+// ONLY because of propagation (has dirty children), the parent's own bounds
+// are NOT added — only leaf dirty children are reported.
+func TestCollector_OnlyLeafDirtyReported(t *testing.T) {
+	parent := newTestWidget(0, 0, 800, 600)
+
+	child1 := newTestWidget(10, 10, 100, 30) // dirty
+	child1.SetParent(parent)
+	parent.AddChild(child1)
+
+	child2 := newTestWidget(10, 50, 100, 30) // clean
+	child2.SetParent(parent)
+	parent.AddChild(child2)
+
+	child1.SetNeedsRedraw(true)
+	parent.SetNeedsRedraw(true) // propagation artifact
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(parent)
+
+	regions := tr.DirtyRegions()
+
+	// Should have exactly 1 region: child1 bounds.
+	// Parent should NOT be reported (it has dirty children → skip self).
+	// child2 should NOT be reported (it's clean).
+	foundChild1 := false
+	foundParent := false
+	for _, r := range regions {
+		if r.Bounds.Width() >= 700 {
+			foundParent = true
+		}
+		if r.Bounds.Width() <= 150 && r.Bounds.Height() <= 50 {
+			foundChild1 = true
+		}
+	}
+
+	if foundParent {
+		t.Error("parent bounds (800x600) should NOT be reported when it has dirty children; " +
+			"Collector should skip parent and report only leaf dirty widgets")
+	}
+	if !foundChild1 {
+		t.Error("child1 bounds should be reported as dirty region")
+	}
+}
+
+// TestCollector_DeepNestingLeafDirty verifies that leaf-dirty pattern
+// works through deeply nested containers (taskmanager/gallery pattern:
+// chart inside collapsible inside card inside ScrollView).
+func TestCollector_DeepNestingLeafDirty(t *testing.T) {
+	// Simulate: root → card → section → chart (dirty)
+	root := newTestWidget(0, 0, 800, 600)
+	card := newTestWidget(24, 24, 736, 500)
+	card.SetParent(root)
+	root.AddChild(card)
+
+	section := newTestWidget(32, 100, 672, 200)
+	section.SetParent(card)
+	card.AddChild(section)
+
+	chart := newTestWidget(32, 120, 640, 160)
+	chart.SetParent(section)
+	section.AddChild(chart)
+
+	// Only chart dirty (PushValue → SetNeedsRedraw → propagation)
+	chart.SetNeedsRedraw(true)
+	// propagation marks ancestors: section, card, root
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(root)
+
+	regions := tr.DirtyRegions()
+
+	// Should find chart bounds (~640x160), NOT root/card/section bounds
+	foundLeaf := false
+	foundLarge := false
+	for _, r := range regions {
+		if r.Bounds.Width() <= 650 && r.Bounds.Height() <= 170 {
+			foundLeaf = true
+		}
+		if r.Bounds.Width() > 700 {
+			foundLarge = true
+		}
+	}
+
+	if !foundLeaf {
+		t.Error("chart leaf bounds NOT found in dirty regions; " +
+			"Collector doesn't recurse deep enough through leaf-dirty pattern")
+	}
+	if foundLarge {
+		t.Error("parent container bounds found — leaf-dirty not working for deep nesting")
+	}
+}
+
+// TestCollector_GalleryPattern_ScrollViewWithSections verifies leaf-dirty
+// for gallery pattern: ScrollView(viewport) → VBox → sections → leaf widget.
+func TestCollector_GalleryPattern_ScrollViewWithSections(t *testing.T) {
+	chart := newTestWidget(32, 340, 640, 160)
+
+	section1 := newTestWidget(24, 0, 720, 300)
+	section2 := newTestWidget(24, 320, 720, 200)
+	section2.AddChild(chart)
+	chart.SetParent(section2)
+
+	vbox := newTestWidget(0, 0, 760, 2000)
+	vbox.AddChild(section1)
+	vbox.AddChild(section2)
+	section1.SetParent(vbox)
+	section2.SetParent(vbox)
+
+	scrollView := newViewportWidget(0, 0, 800, 600, vbox)
+	vbox.SetParent(scrollView)
+
+	chart.SetNeedsRedraw(true)
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(scrollView)
+
+	regions := tr.DirtyRegions()
+
+	foundChart := false
+	foundLarge := false
+	for _, r := range regions {
+		w := r.Bounds.Width()
+		h := r.Bounds.Height()
+		if w <= 650 && h <= 170 {
+			foundChart = true
+		}
+		if w > 700 && h > 300 {
+			foundLarge = true
+		}
+	}
+
+	if !foundChart {
+		t.Errorf("chart leaf bounds NOT found; regions=%v", regions)
+	}
+	if foundLarge {
+		t.Errorf("large container bounds found — leaf-dirty not working through viewport; regions=%v", regions)
+	}
+}
+
+// TestCollector_TaskmanagerPattern_ChartInCollapsible verifies leaf-dirty
+// for taskmanager pattern: ScrollView → VBox → Collapsible → chart.
+// Chart updates via PushValue → SetNeedsRedraw → only chart bounds reported.
+func TestCollector_TaskmanagerPattern_ChartInCollapsible(t *testing.T) {
+	cpuChart := newTestWidget(12, 40, 660, 200)
+
+	collapsibleCPU := newTestWidget(0, 0, 700, 350)
+	collapsibleCPU.AddChild(cpuChart)
+	cpuChart.SetParent(collapsibleCPU)
+
+	collapsibleMem := newTestWidget(0, 370, 700, 250)
+
+	vbox := newTestWidget(0, 0, 700, 1200)
+	vbox.AddChild(collapsibleCPU)
+	vbox.AddChild(collapsibleMem)
+	collapsibleCPU.SetParent(vbox)
+	collapsibleMem.SetParent(vbox)
+
+	scrollView := newViewportWidget(0, 0, 700, 800, vbox)
+	vbox.SetParent(scrollView)
+
+	cpuChart.SetNeedsRedraw(true)
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(scrollView)
+
+	regions := tr.DirtyRegions()
+
+	foundChart := false
+	foundLarge := false
+	for _, r := range regions {
+		w := r.Bounds.Width()
+		h := r.Bounds.Height()
+		if w <= 670 && h <= 210 {
+			foundChart = true
+		}
+		if w > 690 || h > 400 {
+			foundLarge = true
+		}
+	}
+
+	if !foundChart {
+		t.Errorf("chart bounds NOT found; regions=%v", regions)
+	}
+	if foundLarge {
+		t.Errorf("large container bounds found; regions=%v", regions)
+	}
+}
+
+// TestCollector_NoDirtyChildren_ReportSelf verifies that when a widget is
+// dirty but has NO dirty children, it reports its own bounds.
+func TestCollector_NoDirtyChildren_ReportSelf(t *testing.T) {
+	parent := newTestWidget(0, 0, 800, 600)
+
+	child1 := newTestWidget(10, 10, 100, 30)
+	child1.SetParent(parent)
+	parent.AddChild(child1)
+
+	// Only parent dirty, children clean (e.g., theme change).
+	parent.SetNeedsRedraw(true)
+	child1.ClearRedraw()
+
+	tr := NewTracker()
+	c := NewCollector(tr)
+	c.Collect(parent)
+
+	regions := tr.DirtyRegions()
+	if len(regions) == 0 {
+		t.Error("expected parent bounds as dirty region (no dirty children)")
 	}
 }

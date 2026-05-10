@@ -501,6 +501,10 @@ func (w *Widget) Draw(ctx widget.Context, canvas widget.Canvas) {
 	// Set scroll view bounds to match our bounds.
 	w.scroll.SetBounds(bounds)
 
+	// Stamp screen origin on the internal scroll view so its ScreenBounds()
+	// returns correct window-space coordinates for dirty region collection.
+	widget.StampScreenOrigin(w.scroll, canvas)
+
 	// Delegate drawing to the internal scroll view.
 	w.scroll.Draw(ctx, canvas)
 }
