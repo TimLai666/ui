@@ -88,10 +88,11 @@ func (c *recordCanvas) PopClip() {}
 
 func (c *recordCanvas) PushTransform(offset geometry.Point) {}
 
-func (c *recordCanvas) PopTransform()                   {}
-func (c *recordCanvas) TransformOffset() geometry.Point { return geometry.Point{} }
-func (c *recordCanvas) ClipBounds() geometry.Rect       { return geometry.NewRect(0, 0, 10000, 10000) }
-func (c *recordCanvas) ReplayScene(_ *scene.Scene)      {}
+func (c *recordCanvas) PopTransform()                    {}
+func (c *recordCanvas) TransformOffset() geometry.Point  { return geometry.Point{} }
+func (c *recordCanvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
+func (c *recordCanvas) ClipBounds() geometry.Rect        { return geometry.NewRect(0, 0, 10000, 10000) }
+func (c *recordCanvas) ReplayScene(_ *scene.Scene)       {}
 
 // Method name constants to satisfy goconst.
 const (

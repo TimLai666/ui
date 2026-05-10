@@ -438,15 +438,15 @@ func TestSceneCanvas_DrawText_VectorPaths(t *testing.T) {
 
 	// Verify that fill commands were recorded (glyph outlines).
 	tags := sc.Encoding().Tags()
-	hasFill := false
+	hasText := false
 	for _, tag := range tags {
-		if tag == scene.TagFill {
-			hasFill = true
+		if tag == scene.TagFill || tag == scene.TagText {
+			hasText = true
 			break
 		}
 	}
-	if !hasFill {
-		t.Error("expected TagFill commands from vector text rendering")
+	if !hasText {
+		t.Error("expected TagFill or TagText commands from text rendering")
 	}
 }
 
@@ -557,5 +557,366 @@ func TestImageToRGBA_NonRGBA(t *testing.T) {
 	}
 	if result.Bounds() != nrgba.Bounds() {
 		t.Error("bounds should match")
+	}
+}
+
+func TestSceneCanvas_TextModeController(t *testing.T) {
+	sc := scene.NewScene()
+	canvas := NewSceneCanvas(sc, 100, 100)
+
+	tc, ok := widget.Canvas(canvas).(widget.TextModeController)
+	if !ok {
+		t.Fatal("SceneCanvas should implement TextModeController")
+	}
+
+	if tc.TextMode() != widget.TextModeAuto {
+		t.Errorf("TextMode = %v, want Auto", tc.TextMode())
+	}
+
+	tc.SetTextMode(widget.TextModeMSDF)
+	if tc.TextMode() != widget.TextModeAuto {
+		t.Error("SceneCanvas.TextMode should always return Auto (no-op)")
+	}
+}
+
+// --- DeviceScaler (ADR-026) ---
+
+func TestSceneCanvas_DeviceScaler_Interface(t *testing.T) {
+	sc := scene.NewScene()
+	canvas := NewSceneCanvas(sc, 100, 100)
+
+	_, ok := widget.Canvas(canvas).(widget.DeviceScaler)
+	if !ok {
+		t.Fatal("SceneCanvas should implement widget.DeviceScaler")
+	}
+}
+
+func TestSceneCanvas_DeviceScale_Default(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 100, 100)
+
+	if got := c.DeviceScale(); got != 1 {
+		t.Errorf("DeviceScale() default = %f, want 1.0", got)
+	}
+}
+
+func TestSceneCanvas_DeviceScale_SetGet(t *testing.T) {
+	tests := []struct {
+		name     string
+		set      float32
+		expected float32
+	}{
+		{"scale 2.0", 2.0, 2.0},
+		{"scale 1.5", 1.5, 1.5},
+		{"scale 1.0", 1.0, 1.0},
+		{"scale 0 → default 1.0", 0, 1.0},
+		{"scale negative → default 1.0", -1, 1.0},
+		{"scale 3.0", 3.0, 3.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := scene.NewScene()
+			c := NewSceneCanvas(sc, 100, 100)
+			c.SetDeviceScale(tt.set)
+
+			if got := c.DeviceScale(); got != tt.expected {
+				t.Errorf("DeviceScale() = %f, want %f", got, tt.expected)
+			}
+		})
+	}
+}
+
+// --- svgDrawTransform ---
+
+func TestSvgDrawTransform_Scale1(t *testing.T) {
+	// At scale 1.0, should produce a pure translation.
+	aff := svgDrawTransform(10, 20, 1.0)
+	expected := scene.TranslateAffine(10, 20)
+
+	if aff != expected {
+		t.Errorf("svgDrawTransform(10,20,1) = %+v, want %+v", aff, expected)
+	}
+}
+
+func TestSvgDrawTransform_ScaleLessThan1(t *testing.T) {
+	// Scale < 1 should also produce pure translation (no downscale).
+	aff := svgDrawTransform(10, 20, 0.5)
+	expected := scene.TranslateAffine(10, 20)
+
+	if aff != expected {
+		t.Errorf("svgDrawTransform(10,20,0.5) = %+v, want %+v", aff, expected)
+	}
+}
+
+func TestSvgDrawTransform_Scale2(t *testing.T) {
+	// Scale 2.0: translate(10,20) * scale(0.5, 0.5)
+	aff := svgDrawTransform(10, 20, 2.0)
+
+	// Expected: A=0.5, B=0, C=10, D=0, E=0.5, F=20
+	if aff.A != 0.5 || aff.E != 0.5 {
+		t.Errorf("scale components: A=%f, E=%f, want 0.5, 0.5", aff.A, aff.E)
+	}
+	if aff.C != 10 || aff.F != 20 {
+		t.Errorf("translation components: C=%f, F=%f, want 10, 20", aff.C, aff.F)
+	}
+	if aff.B != 0 || aff.D != 0 {
+		t.Errorf("off-diagonal: B=%f, D=%f, want 0, 0", aff.B, aff.D)
+	}
+}
+
+func TestSvgDrawTransform_PointMapping(t *testing.T) {
+	// A 40×40 image drawn at scale 2.0 should map (40,40) → (30,30) = (10+40*0.5, 20+40*0.5)
+	aff := svgDrawTransform(10, 20, 2.0)
+	x, y := aff.TransformPoint(40, 40)
+
+	if x != 30 || y != 40 {
+		t.Errorf("TransformPoint(40,40) = (%f,%f), want (30,40)", x, y)
+	}
+
+	// Origin maps to the translation offset.
+	x0, y0 := aff.TransformPoint(0, 0)
+	if x0 != 10 || y0 != 20 {
+		t.Errorf("TransformPoint(0,0) = (%f,%f), want (10,20)", x0, y0)
+	}
+}
+
+// --- FillSVGPath DPI-aware rendering ---
+
+// simpleSVGPath is a valid SVG path for testing FillSVGPath.
+const simpleSVGPath = "M12 2L2 22h20z"
+
+func TestSceneCanvas_FillSVGPath_Scale1_ProducesScene(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	// Scale 1.0 (default) — baseline behavior.
+	v0 := sc.Version()
+	c.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 <= v0 {
+		t.Error("FillSVGPath at scale=1 should produce scene commands")
+	}
+}
+
+func TestSceneCanvas_FillSVGPath_Scale2_ProducesScene(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	c.SetDeviceScale(2.0)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 <= v0 {
+		t.Error("FillSVGPath at scale=2 should produce scene commands")
+	}
+}
+
+func TestSceneCanvas_FillSVGPath_DifferentScales_DifferentCacheEntries(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	// Render at scale 1.
+	sc1 := scene.NewScene()
+	c1 := NewSceneCanvas(sc1, 200, 200)
+	c1.SetDeviceScale(1.0)
+	c1.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	c1.Close()
+
+	stats1 := globalIconCache.stats()
+	entries1 := stats1.ImageEntries
+
+	// Render at scale 2 — must create a SEPARATE cache entry.
+	sc2 := scene.NewScene()
+	c2 := NewSceneCanvas(sc2, 200, 200)
+	c2.SetDeviceScale(2.0)
+	c2.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	c2.Close()
+
+	stats2 := globalIconCache.stats()
+	entries2 := stats2.ImageEntries
+
+	if entries2 <= entries1 {
+		t.Errorf("different scales should produce different cache entries: scale1=%d, scale2=%d",
+			entries1, entries2)
+	}
+}
+
+func TestSceneCanvas_FillSVGPath_EmptyPath(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.FillSVGPath("", 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("empty SVG path should not produce scene commands")
+	}
+}
+
+func TestSceneCanvas_FillSVGPath_ZeroViewBox(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.FillSVGPath(simpleSVGPath, 0, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("zero viewBox should not produce scene commands")
+	}
+}
+
+// --- RenderSVG DPI-aware rendering ---
+
+// minimalSVGForCanvas is a valid SVG XML for testing RenderSVG in scene_canvas tests.
+var minimalSVGForCanvas = []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2L2 22h20z"/></svg>`)
+
+func TestSceneCanvas_RenderSVG_Scale1_ProducesScene(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 <= v0 {
+		t.Error("RenderSVG at scale=1 should produce scene commands")
+	}
+}
+
+func TestSceneCanvas_RenderSVG_Scale2_ProducesScene(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	c.SetDeviceScale(2.0)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 <= v0 {
+		t.Error("RenderSVG at scale=2 should produce scene commands")
+	}
+}
+
+func TestSceneCanvas_RenderSVG_DifferentScales_DifferentCacheEntries(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	// Render at scale 1.
+	sc1 := scene.NewScene()
+	c1 := NewSceneCanvas(sc1, 200, 200)
+	c1.SetDeviceScale(1.0)
+	c1.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	c1.Close()
+
+	stats1 := globalIconCache.stats()
+	entries1 := stats1.ImageEntries
+
+	// Render at scale 2.
+	sc2 := scene.NewScene()
+	c2 := NewSceneCanvas(sc2, 200, 200)
+	c2.SetDeviceScale(2.0)
+	c2.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	c2.Close()
+
+	stats2 := globalIconCache.stats()
+	entries2 := stats2.ImageEntries
+
+	if entries2 <= entries1 {
+		t.Errorf("different scales should produce different cache entries: scale1=%d, scale2=%d",
+			entries1, entries2)
+	}
+}
+
+func TestSceneCanvas_RenderSVG_EmptyXML(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.RenderSVG(nil, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("nil SVG XML should not produce scene commands")
+	}
+}
+
+func TestSceneCanvas_RenderSVG_ZeroBounds(t *testing.T) {
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	v0 := sc.Version()
+	c.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 0, 0), widget.ColorBlack)
+	v1 := sc.Version()
+
+	if v1 != v0 {
+		t.Error("zero-size bounds should not produce scene commands")
+	}
+}
+
+func TestSceneCanvas_FillSVGPath_Scale1_CacheHit(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	defer c.Close()
+
+	// First call: cache miss.
+	c.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	stats1 := globalIconCache.stats()
+
+	// Second call with same params: cache hit.
+	c.FillSVGPath(simpleSVGPath, 24, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	stats2 := globalIconCache.stats()
+
+	if stats2.Hits <= stats1.Hits {
+		t.Error("second FillSVGPath call should produce a cache hit")
+	}
+}
+
+func TestSceneCanvas_RenderSVG_Scale2_CacheHit(t *testing.T) {
+	globalIconCache.invalidateAll()
+	defer globalIconCache.invalidateAll()
+
+	sc := scene.NewScene()
+	c := NewSceneCanvas(sc, 200, 200)
+	c.SetDeviceScale(2.0)
+	defer c.Close()
+
+	// First call: cache miss.
+	c.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	stats1 := globalIconCache.stats()
+
+	// Second call with same params + scale: cache hit.
+	c.RenderSVG(minimalSVGForCanvas, geometry.NewRect(10, 10, 20, 20), widget.ColorBlack)
+	stats2 := globalIconCache.stats()
+
+	if stats2.Hits <= stats1.Hits {
+		t.Error("second RenderSVG call at same scale should produce a cache hit")
 	}
 }

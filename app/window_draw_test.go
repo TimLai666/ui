@@ -47,6 +47,7 @@ func (c *recordingCanvas) PopClip()                                     { c.popC
 func (c *recordingCanvas) PushTransform(geometry.Point)                 {}
 func (c *recordingCanvas) PopTransform()                                {}
 func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *recordingCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *recordingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *recordingCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -125,6 +126,7 @@ func TestDrawTo_CleanTreeFullRepaint(t *testing.T) {
 	w := a.Window()
 	root := newDrawTrackingWidget(geometry.NewRect(0, 0, 100, 50))
 	w.SetRoot(root)
+	root.SetRepaintBoundary(false)
 
 	canvas := &recordingCanvas{}
 
@@ -161,6 +163,7 @@ func TestDrawTo_SignalChange(t *testing.T) {
 	w := a.Window()
 	root := newDrawTrackingWidget(geometry.NewRect(0, 0, 200, 100))
 	w.SetRoot(root)
+	root.SetRepaintBoundary(false)
 
 	canvas := &recordingCanvas{}
 	w.DrawTo(canvas)
@@ -582,6 +585,7 @@ func TestDrawTo_HostManaged_AlwaysDraws(t *testing.T) {
 	w := a.Window()
 	root := newDrawTrackingWidget(geometry.NewRect(0, 0, 200, 100))
 	w.SetRoot(root)
+	root.SetRepaintBoundary(false)
 
 	canvas := &recordingCanvas{}
 	w.DrawTo(canvas) // First draw.

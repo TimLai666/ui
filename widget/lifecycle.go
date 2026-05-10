@@ -40,9 +40,14 @@ func MountTree(w Widget, ctx Context) {
 		lc.Mount(ctx)
 	}
 
-	// Recurse into children.
+	// Recurse into children, establishing parent chain.
+	// Flutter adoptChild pattern: every child knows its parent so that
+	// propagateDirtyUpward can walk to the nearest RepaintBoundary.
 	if children := w.Children(); children != nil {
 		for _, child := range children {
+			if setter, ok := child.(interface{ SetParent(Widget) }); ok {
+				setter.SetParent(w)
+			}
 			MountTree(child, ctx)
 		}
 	}
@@ -71,6 +76,11 @@ func UnmountTree(w Widget) {
 	// Call Unmount if widget implements Lifecycle.
 	if lc, ok := w.(Lifecycle); ok {
 		lc.Unmount()
+	}
+
+	// Clear parent link.
+	if setter, ok := w.(interface{ SetParent(Widget) }); ok {
+		setter.SetParent(nil)
 	}
 
 	// Clear mounted state.

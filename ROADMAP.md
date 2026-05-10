@@ -1,7 +1,7 @@
 # gogpu/ui Roadmap
 
-> **Version:** 0.4.x (Phase 3 Complete, Phase 4 Near Complete)
-> **Updated:** April 2026
+> **Version:** 0.1.19 (Phase 3 RC + Layer Tree Compositor)
+> **Updated:** May 2026
 > **Go Version:** 1.25+
 
 ---
@@ -30,13 +30,13 @@
 
 | Metric | Value |
 |--------|-------|
-| Packages | 55+ |
-| Go Source Files | ~350 |
-| Test Files | ~151 |
-| Total LOC | ~150,000 |
-| Test Functions | ~6,000 |
+| Packages | 56+ |
+| Go Source Files | ~370 |
+| Test Files | ~160 |
+| Total LOC | ~170,000+ |
+| Test Functions | ~6,800+ |
 | Test Coverage | 97%+ |
-| Linter Issues | 0 |
+| Linter Issues | 0 (new code) |
 
 ---
 
@@ -263,12 +263,18 @@ v1.0.0  → Production (when ready)
 | Toolbar widget | Action bar with items and overflow |
 | Menu widget | Menu bar, context menu, menu items |
 | Dirty Region Tracking | Region collector, merge algorithm, partial repaints |
-| **Incremental Rendering (ADR-004)** | Frame skip, persistent pixmap, dirty regions, RepaintBoundary compositing |
-| **ListView auto RepaintBoundary** | Per-item pixel caching for virtualized lists |
-| **DrawStats observability** | CachedWidgets, DirtyRegionCount, DrawStatsProvider |
-| **Tracker.Intersects() fast path** | O(regions) spatial check in RepaintBoundary |
-| **Centralized ImageCache** | LRU eviction (64MB), thread-safe, per-Window lifecycle |
-| **Offscreen Renderer** | Headless widget → *image.RGBA without GPU/window |
+| **Layer Tree Compositor (ADR-007)** | **Flutter pipeline: PaintBoundaryLayers → BuildLayerTree → replayLayerTree** |
+| **Per-boundary GPU textures** | **Each RepaintBoundary → own offscreen GPU texture** |
+| **DrawChild skip (Flutter paintChild)** | **Child boundaries SKIPPED during parent recording** |
+| **Compositor scissor clipping** | **Items clipped by ScrollView viewport** |
+| **0% GPU idle (frame skip)** | **Early return when nothing dirty — 0% GPU on static UI** |
+| **Offscreen boundary culling** | **Spinner offscreen → recording skipped → pumper stops** |
+| **34 integration tests** | **Multi-frame lifecycle, visibility matrix, damage rects** |
+| ListView auto RepaintBoundary | Per-item pixel caching for virtualized lists |
+| DrawStats observability | CachedWidgets, DirtyRegionCount, DrawStatsProvider |
+| Tracker.Intersects() fast path | O(regions) spatial check in RepaintBoundary |
+| Centralized ImageCache | LRU eviction (64MB), thread-safe, per-Window lifecycle |
+| Offscreen Renderer | Headless widget → *image.RGBA without GPU/window |
 | Performance Benchmarks | 36 benchmarks across 5 packages |
 | Task Manager Example | Full-featured demo with charts, tables, animations |
 | Widget Gallery Example | All 22 widgets, 4 design systems, theme switching |
@@ -282,28 +288,37 @@ v1.0.0  → Production (when ready)
 
 | Task | Description | Priority |
 |------|-------------|----------|
+| **Damage-aware compositor** | **LoadOpLoad + partial blit (gg-level). Spinner GPU 8% → <3%** | **P0** |
+| **Parent chain fix** | **BoxWidget SetParent → correct propagateDirtyUpward** | **P1** |
 | Accessibility adapters | Platform-specific AT-SPI / UIA adapters | P1 |
+| RichText widget | Styled text with inline formatting, links | P2 |
+| NumberField widget | Numeric input with increment/decrement, ranges | P2 |
+| DatePicker widget | Calendar popup, date range selection | P2 |
+| TimePicker widget | Time selection with hour/minute/AM-PM | P2 |
+| ColorPicker widget | Color wheel, palette, opacity slider | P2 |
+| Accordion widget | Mutually exclusive collapsible sections | P3 |
+| Breadcrumb widget | Navigation breadcrumb trail | P3 |
+| Stepper widget | Multi-step wizard/form progress | P3 |
 | Documentation polish | Comprehensive API docs and guides | P2 |
-| **Rendering Performance (ADR-006)** | **Zero-readback compositor + GPU layers** | **P0** |
 | API review | Pre-release API audit and freeze | P0 |
 
 ---
 
-## Rendering Performance Roadmap (ADR-004 + ADR-006)
+## Rendering Performance Roadmap (ADR-007)
 
 > **Architecture:** Hybrid CPU+GPU — industry standard (Chrome/Skia, Flutter, GTK4, Qt).
 > CPU text atlas + GPU shapes + GPU compositor. Validated by source-level analysis of 8 engines.
 
-### Current State (Intel Iris Xe, 60fps)
+### Current State (Intel Iris Xe, v0.1.19)
 
-| Metric | Before (v0.1.13) | After Phase 2 (current) |
-|--------|------------------|------------------------|
-| GPU (spinner, small window) | 22% | **7%** |
-| GPU (spinner, full screen) | 25% | **18%** |
-| GPU idle (static UI) | 0% | 0% |
-| GPU readback per frame | 1 (full pixmap) | **0** |
-| Render passes | 2 | **1** (compositor, damage-aware) |
-| Texture upload | Full pixmap (1.92MB) | Partial dirty region (62KB) |
+| Metric | Before (v0.1.14) | After v0.1.19 |
+|--------|-------------------|---------------|
+| GPU (static UI, no animations) | 8% | **0%** |
+| GPU (spinner visible, 30fps) | 8% | **8%** |
+| GPU (spinner offscreen) | 8% | **0%** |
+| GPU readback per frame | 0 | 0 |
+| Render passes (idle) | 1 | **0** (frame skip) |
+| Offscreen boundary cost | Always recorded | **Culled** (CompositorClip) |
 
 ### Phase 1: Zero-Readback Compositor ✅ Done
 
@@ -323,14 +338,28 @@ Single-pass compositor (Flutter OffsetLayer / Chrome cc pattern):
   rendered via GPU accelerator.
 - **Upward dirty propagation**: O(depth) to nearest RepaintBoundary, O(1) guard.
 
-### Phase 3: Performance Optimization — Future
+### Phase 3: Per-Boundary GPU Textures (ADR-007 Phase 7) ✅ Done
 
-- **Frame skip**: skip GPU render when nothing changed (OPT-001)
-- **RepaintBoundary isolation**: auto-wrap animated widgets to prevent full-tree redraw (OPT-002)
-- **Damage-aware compositor**: `FlushGPUWithViewDamage` with boundary damage rect (ADR-007 Task 3d)
-- **SceneCanvas rounded clip**: proper rounded clip shapes instead of rectangular fallback
+- **Per-boundary GPU textures**: each RepaintBoundary → own offscreen MSAA texture
+- **DrawChild skip**: child boundaries SKIPPED during parent BoundaryRecording (Flutter paintChild)
+- **Compositor scissor clipping**: items clipped by parent viewport (ScrollView)
+- **Frame skip**: early return in desktop.draw when nothing dirty → 0% GPU idle
+- **Offscreen boundary culling**: isBoundaryVisible checks CompositorClip intersection
+- **Pumper isolation**: ScheduleAnimationFrame only pumper trigger, data tickers don't restart 30fps
+- **34 integration tests**: multi-frame lifecycle, visibility matrix, damage rects, recording order
 
-### Phase 4: Vello Compute Integration — Future
+> **Note:** `ui/compositor/` package (Layer Tree: OffsetLayer, PictureLayer, ClipRectLayer,
+> OpacityLayer, Compositor) is fully implemented and tested but **NOT connected to
+> production pipeline**. Phase 7 per-boundary GPU textures replaced it — direct texture
+> caching + blit is simpler. Layer Tree remains for future animated transforms/opacity.
+
+### Phase 4: Damage-Aware Compositor — Next
+
+- **LoadOpLoad**: gg-level optimization — preserve previous framebuffer, blit only dirty regions
+- **Partial present**: PresentWithDamage sends dirty rects to OS compositor
+- **Expected result**: spinner GPU 8% → <3% (only 48×48 blit instead of full-screen)
+
+### Phase 5: Vello Compute Integration — Future
 
 Full Vello 9-stage compute pipeline for GPU-accelerated path rendering:
 - `internal/gpu/tilecompute/` already exists (CPU reference)
@@ -338,12 +367,52 @@ Full Vello 9-stage compute pipeline for GPU-accelerated path rendering:
 
 ### Performance Targets
 
-| Metric | Phase 1 | Phase 2 ✅ | Phase 3 | Phase 4 |
+| Metric | Phase 2 | Phase 3 ✅ | Phase 4 | Phase 5 |
 |--------|---------|-----------|---------|---------|
-| GPU % (small window) | 8% | **7%** | <3% | <1% |
-| GPU % (full screen) | 20% | **18%** | <5% | <3% |
+| GPU % (static UI) | 8% | **0%** | 0% | 0% |
+| GPU % (spinner) | 8% | **8%** | <3% | <1% |
+| GPU % (spinner offscreen) | 8% | **0%** | 0% | 0% |
 | GPU readback | 0 | 0 | 0 | 0 |
-| MSAA size | Full window | Full window (scissored) | Widget size | N/A (compute) |
+
+---
+
+## New Widgets Roadmap
+
+### Near-term (v0.4.x)
+
+| Widget | Description | Complexity |
+|--------|-------------|------------|
+| **RichText** | Styled text with bold/italic/links, inline formatting | Medium |
+| **NumberField** | Numeric input: spinner buttons, range clamping, step | Low |
+| **ToggleSwitch** | iOS/Material on/off switch with animation | Low |
+| **Badge** | Notification badge (dot or count) on any widget | Low |
+| **Chip** | Filter/action chips (M3 spec) | Low |
+| **SegmentedControl** | Toggle button group (iOS/Fluent style) | Medium |
+
+### Mid-term (v0.5.x)
+
+| Widget | Description | Complexity |
+|--------|-------------|------------|
+| **DatePicker** | Calendar popup, date ranges, locale-aware | High |
+| **TimePicker** | Hour/minute selection, AM/PM, 24h formats | Medium |
+| **ColorPicker** | Color wheel/palette, HSL/RGB, opacity | High |
+| **Accordion** | Mutually exclusive collapsible sections | Low |
+| **Breadcrumb** | Navigation breadcrumb with separators | Low |
+| **Stepper** | Multi-step wizard with progress indicator | Medium |
+| **SearchField** | Text input with search icon, clear, suggestions | Medium |
+
+### Long-term (v0.6.x+)
+
+| Widget | Description | Complexity |
+|--------|-------------|------------|
+| **RichTextEditor** | Editable rich text (ProseMirror-inspired) | Very High |
+| **Sheet** | Bottom/side sheet overlay (M3 spec) | Medium |
+| **NavigationRail** | Vertical navigation (M3 spec) | Medium |
+| **Carousel** | Horizontal scroll with snap points | Medium |
+| **VirtualTable** | DataTable + virtualized rows (10K+ rows) | High |
+| **CodeEditor** | Syntax-highlighted code editing (IDE widget) | Very High |
+| **Terminal** | Terminal emulator widget | Very High |
+| **Canvas** | User-controlled drawing surface | Medium |
 
 ---
 
@@ -365,13 +434,13 @@ Full Vello 9-stage compute pipeline for GPU-accelerated path rendering:
 
 | Dependency | Version | Purpose | Status |
 |------------|---------|---------|--------|
-| gogpu/gg | v0.43.1 | 2D rendering + scene.Scene | ✅ Integrated |
-| gogpu/gpucontext | v0.15.0 | Shared interfaces | ✅ Integrated |
-| gogpu/gogpu | v0.29.4 | Windowing (examples) | ✅ Integrated |
+| gogpu/gg | v0.46.4 | 2D rendering + scene.Scene | ✅ Integrated |
+| gogpu/gpucontext | v0.18.0 | Shared interfaces | ✅ Integrated |
+| gogpu/gogpu | v0.34.0 | Windowing (examples) | ✅ Integrated |
 | coregx/signals | v0.1.0 | State management | ✅ Integrated |
 | golang.org/x/image | v0.39.0 | Inter font (standard) | ✅ Integrated |
 
-**Indirect:** go-text/typesetting v0.3.4, gogpu/gputypes v0.5.0, gogpu/wgpu v0.26.4, gogpu/naga v0.17.6, golang.org/x/text v0.36.0
+**Indirect:** go-text/typesetting v0.3.4, gogpu/gputypes v0.5.0, gogpu/wgpu v0.27.1, gogpu/naga v0.17.13, golang.org/x/text v0.36.0
 
 ---
 
@@ -381,6 +450,7 @@ Full Vello 9-stage compute pipeline for GPU-accelerated path rendering:
 - 60fps with 10,000 widgets
 - <100ms startup time
 - <1KB memory per widget
+- 0% GPU on static UI ✅
 
 ### Quality
 - 80%+ test coverage (current: 97%+)

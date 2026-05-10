@@ -403,3 +403,41 @@ func BenchmarkRGBA8_Constructor(b *testing.B) {
 		_ = RGBA8(128, 64, 192, 255)
 	}
 }
+
+func TestTextMode_String(t *testing.T) {
+	tests := []struct {
+		mode TextMode
+		want string
+	}{
+		{TextModeAuto, "Auto"},
+		{TextModeMSDF, "MSDF"},
+		{TextModeVector, "Vector"},
+		{TextModeBitmap, "Bitmap"},
+		{TextModeGlyphMask, "GlyphMask"},
+		{TextMode(99), "Unknown"},
+		{TextMode(-1), "Unknown"},
+	}
+	for _, tt := range tests {
+		if got := tt.mode.String(); got != tt.want {
+			t.Errorf("TextMode(%d).String() = %q, want %q", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestTextMode_Values(t *testing.T) {
+	if TextModeAuto != 0 {
+		t.Error("TextModeAuto should be 0 (iota)")
+	}
+	if TextModeMSDF != 1 {
+		t.Error("TextModeMSDF should be 1")
+	}
+	if TextModeVector != 2 {
+		t.Error("TextModeVector should be 2")
+	}
+	if TextModeBitmap != 3 {
+		t.Error("TextModeBitmap should be 3")
+	}
+	if TextModeGlyphMask != 4 {
+		t.Error("TextModeGlyphMask should be 4")
+	}
+}

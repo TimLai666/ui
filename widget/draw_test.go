@@ -374,6 +374,7 @@ func (c *noopCanvas) PopClip()                                     {}
 func (c *noopCanvas) PushTransform(geometry.Point)                 {}
 func (c *noopCanvas) PopTransform()                                {}
 func (c *noopCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *noopCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *noopCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *noopCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -404,6 +405,8 @@ func (c *stampCanvas) PopTransform() {
 func (c *stampCanvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
+
+func (c *stampCanvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
 
 func TestStampScreenOrigin_Basic(t *testing.T) {
 	canvas := &stampCanvas{}
@@ -487,3 +490,555 @@ func (w *statsCapturingWidget) Draw(ctx Context, _ Canvas) {
 func (w *statsCapturingWidget) Event(_ Context, _ event.Event) bool { return false }
 
 var _ Widget = (*statsCapturingWidget)(nil)
+
+// --- ADR-024 DrawChild Tests ---
+//
+// DrawChild is the public API for container widgets to draw children
+// with RepaintBoundary support. It checks IsRepaintBoundary and routes
+// through scene caching (drawBoundaryWidget) or direct Draw.
+// This replaces the primitives.NewRepaintBoundary wrapper pattern.
+
+// TestDrawChild_NormalWidgetCallsDraw verifies that DrawChild calls
+// child.Draw() directly when child is NOT a RepaintBoundary.
+func TestDrawChild_NormalWidgetCallsDraw(t *testing.T) {
+	child := newDrawTrackingWidget()
+	child.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	DrawChild(child, nil, nil)
+
+	if !child.drawCalled {
+		t.Error("DrawChild should call child.Draw() for non-boundary widget")
+	}
+}
+
+// TestDrawChild_NilChild verifies DrawChild handles nil gracefully.
+func TestDrawChild_NilChild(t *testing.T) {
+	DrawChild(nil, nil, nil) // must not panic
+}
+
+// TestDrawChild_BoundaryFallsBackWithoutRecorder verifies that DrawChild
+// falls back to direct Draw when no SceneRecorder is registered.
+func TestDrawChild_BoundaryFallsBackWithoutRecorder(t *testing.T) {
+	child := newDrawTrackingWidget()
+	child.SetRepaintBoundary(true)
+	child.SetBounds(geometry.NewRect(10, 20, 100, 50))
+
+	// Without SceneRecorder registered, drawBoundaryWidget falls back to Draw.
+	DrawChild(child, nil, nil)
+
+	if !child.drawCalled {
+		t.Error("DrawChild should fall back to Draw when no SceneRecorder registered")
+	}
+}
+
+// TestDrawChild_BoundaryChecked verifies that DrawChild detects
+// IsRepaintBoundary and routes differently than normal Draw.
+func TestDrawChild_BoundaryChecked(t *testing.T) {
+	normal := newDrawTrackingWidget()
+	normal.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	boundary := newDrawTrackingWidget()
+	boundary.SetRepaintBoundary(true)
+	boundary.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	if normal.IsRepaintBoundary() {
+		t.Error("normal widget should not be boundary")
+	}
+	if !boundary.IsRepaintBoundary() {
+		t.Error("boundary widget should be boundary")
+	}
+}
+
+// TestBoundary_MarkRedrawInTreeInvalidatesRootScene verifies that
+// MarkRedrawInTree on the root widget also invalidates its scene when
+// root has IsRepaintBoundary=true. Without this, ctx.Invalidate()
+// sets needsRedraw but root boundary replays stale cached scene.
+func TestBoundary_MarkRedrawInTreeInvalidatesRootScene(t *testing.T) {
+	root := newDrawTrackingWidget()
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+
+	root.ClearRedraw()
+	root.ClearSceneDirty()
+
+	// Simulate what ctx.Invalidate does.
+	MarkRedrawInTree(root)
+
+	if !root.NeedsRedraw() {
+		t.Error("root.NeedsRedraw() should be true after MarkRedrawInTree")
+	}
+	if !root.IsSceneDirty() {
+		t.Error("root.IsSceneDirty() should be true after MarkRedrawInTree; " +
+			"ctx.Invalidate → MarkRedrawInTree must also invalidate boundary scene, " +
+			"otherwise root replays stale cached scene on checkbox/radio clicks")
+	}
+}
+
+// TestBoundary_MarkRedrawInTreeDoesNotInvalidateChildBoundaries verifies
+// that MarkRedrawInTree only invalidates the ROOT boundary (no parent),
+// not recursively all child boundaries. Over-invalidation causes full
+// repaint every frame → cyan overlay covers entire window.
+func TestBoundary_MarkRedrawInTreeInvalidatesAllBoundaries(t *testing.T) {
+	root := newDrawTrackingWidget()
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+
+	child := newDrawTrackingWidget()
+	child.SetRepaintBoundary(true)
+	child.SetBounds(geometry.NewRect(0, 0, 48, 48))
+	child.SetParent(root)
+	root.AddChild(child)
+
+	root.ClearRedraw()
+	root.ClearSceneDirty()
+	child.ClearRedraw()
+	child.ClearSceneDirty()
+
+	MarkRedrawInTree(root)
+
+	if !root.IsSceneDirty() {
+		t.Error("root boundary should be scene-dirty after MarkRedrawInTree")
+	}
+
+	// MarkRedrawInTree is nuclear (layout/resize). ALL boundaries must
+	// invalidate because widget positions may have changed. SetNeedsRedraw
+	// on a boundary widget calls InvalidateScene() (Flutter markNeedsPaint
+	// self-boundary pattern), so child boundaries correctly become dirty.
+	if !child.IsSceneDirty() {
+		t.Error("child boundary should be scene-dirty after MarkRedrawInTree; " +
+			"nuclear redraw invalidates all boundaries (layout may have moved them)")
+	}
+}
+
+// TestDrawChild_BoundaryAtNonZeroPosition verifies that DrawChild works
+// correctly when the boundary widget has bounds NOT at origin (e.g., Y=200
+// in ScrollView content space). The scene must be recorded in LOCAL coords
+// (0,0-based), not absolute coords — otherwise text is culled by the
+// SceneCanvas clip rect.
+func TestDrawChild_BoundaryAtNonZeroPosition(t *testing.T) {
+	child := newDrawTrackingWidget()
+	child.SetRepaintBoundary(true)
+	child.SetBounds(geometry.NewRect(0, 200, 400, 48)) // Y=200, not at origin
+
+	// DrawChild should still call Draw (fallback without SceneRecorder).
+	DrawChild(child, nil, nil)
+
+	if !child.drawCalled {
+		t.Error("DrawChild should draw widget even at non-zero position")
+	}
+}
+
+// --- ADR-024 RepaintBoundary Dirty Propagation Tests ---
+//
+// These verify that SetNeedsRedraw propagates upward through the parent chain
+// to the nearest WidgetBase RepaintBoundary, invalidating its scene cache.
+// Without this, the boundary replays stale cached scenes after child changes.
+
+// TestBoundary_SetNeedsRedrawPropagesToWidgetBaseBoundary verifies that
+// a child's SetNeedsRedraw(true) propagates to a WidgetBase parent with
+// isRepaintBoundary=true, calling InvalidateScene.
+func TestBoundary_SetNeedsRedrawPropagesToWidgetBaseBoundary(t *testing.T) {
+	parent := newDrawTrackingWidget()
+	parent.SetRepaintBoundary(true)
+
+	child := newDrawTrackingWidget()
+	child.SetParent(parent)
+
+	// Clear initial dirty state.
+	parent.ClearRedraw()
+	parent.ClearSceneDirty() // Reset scene dirty flag.
+	child.ClearRedraw()
+
+	// Child marks itself dirty.
+	child.SetNeedsRedraw(true)
+
+	// Parent boundary scene must be invalidated.
+	if !parent.IsSceneDirty() {
+		t.Error("parent.IsSceneDirty() = false; SetNeedsRedraw on child should " +
+			"propagate to WidgetBase boundary and call InvalidateScene")
+	}
+}
+
+// TestBoundary_SetNeedsRedrawStopsAtFirstBoundary verifies that dirty
+// propagation stops at the NEAREST RepaintBoundary (O(depth) walk).
+func TestBoundary_SetNeedsRedrawStopsAtFirstBoundary(t *testing.T) {
+	root := newDrawTrackingWidget()
+	root.SetRepaintBoundary(true)
+
+	middle := newDrawTrackingWidget()
+	middle.SetRepaintBoundary(true)
+	middle.SetParent(root)
+
+	child := newDrawTrackingWidget()
+	child.SetParent(middle)
+
+	// Clear all.
+	root.ClearRedraw()
+	root.ClearSceneDirty()
+	middle.ClearRedraw()
+	middle.ClearSceneDirty()
+	child.ClearRedraw()
+
+	child.SetNeedsRedraw(true)
+
+	// Middle boundary should be dirty (nearest).
+	if !middle.IsSceneDirty() {
+		t.Error("middle boundary should be scene-dirty (nearest to child)")
+	}
+
+	// Root boundary should NOT be dirty (propagation stops at middle).
+	if root.IsSceneDirty() {
+		t.Error("root boundary should NOT be scene-dirty (propagation stops at middle)")
+	}
+}
+
+// TestBoundary_MarkRedrawLocalDoesNotPropagate verifies that MarkRedrawLocal
+// sets needsRedraw on the widget but does NOT propagate to parent boundary.
+// This is the bug that caused stale scene cache on scroll (fixed in setScroll).
+func TestBoundary_MarkRedrawLocalDoesNotPropagate(t *testing.T) {
+	parent := newDrawTrackingWidget()
+	parent.SetRepaintBoundary(true)
+
+	child := newDrawTrackingWidget()
+	child.SetParent(parent)
+
+	parent.ClearRedraw()
+	parent.ClearSceneDirty()
+	child.ClearRedraw()
+
+	// MarkRedrawLocal only sets local flag.
+	child.MarkRedrawLocal()
+
+	if !child.NeedsRedraw() {
+		t.Error("child.NeedsRedraw() should be true after MarkRedrawLocal")
+	}
+
+	// Parent boundary must NOT be invalidated.
+	if parent.IsSceneDirty() {
+		t.Error("parent.IsSceneDirty() should be false; MarkRedrawLocal must not propagate")
+	}
+}
+
+// TestBoundary_CacheHitWhenClean verifies that drawBoundaryWidget returns
+// cache hit (replays scene) when boundary is NOT scene-dirty.
+func TestBoundary_CacheHitWhenClean(t *testing.T) {
+	w := newDrawTrackingWidget()
+	w.SetRepaintBoundary(true)
+	w.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	// Simulate first draw: create and cache a scene.
+	sc := scene.NewScene()
+	w.SetCachedScene(sc)
+	w.SetSceneCacheSize(100, 50)
+	w.ClearSceneDirty()
+
+	// Now check: boundary is clean + has cached scene = cache hit.
+	if w.IsSceneDirty() {
+		t.Error("boundary should be clean")
+	}
+	if w.CachedScene() == nil {
+		t.Error("cached scene should exist")
+	}
+}
+
+// TestBoundary_CacheMissWhenDirty verifies that drawBoundaryWidget forces
+// re-record when boundary IS scene-dirty.
+func TestBoundary_CacheMissWhenDirty(t *testing.T) {
+	w := newDrawTrackingWidget()
+	w.SetRepaintBoundary(true)
+	w.SetBounds(geometry.NewRect(0, 0, 100, 50))
+
+	// Give it a cached scene.
+	sc := scene.NewScene()
+	w.SetCachedScene(sc)
+	w.SetSceneCacheSize(100, 50)
+
+	// Mark dirty.
+	w.InvalidateScene()
+
+	if !w.IsSceneDirty() {
+		t.Error("boundary should be scene-dirty after InvalidateScene")
+	}
+}
+
+// TestBoundary_SizeChangeInvalidatesCache verifies that a size change
+// forces cache miss even if boundary is not scene-dirty.
+func TestBoundary_SizeChangeInvalidatesCache(t *testing.T) {
+	w := newDrawTrackingWidget()
+	w.SetRepaintBoundary(true)
+	w.SetBounds(geometry.NewRect(0, 0, 100, 50))
+	w.SetSceneCacheSize(100, 50)
+	w.SetCachedScene(scene.NewScene())
+	w.ClearSceneDirty()
+
+	// Change bounds (simulate resize).
+	w.SetBounds(geometry.NewRect(0, 0, 200, 100))
+
+	// drawBoundaryWidget checks cw != width || ch != height.
+	cw, ch := w.SceneCacheSize()
+	bounds := w.Bounds()
+	newW := int(bounds.Width())
+	newH := int(bounds.Height())
+
+	if cw == newW && ch == newH {
+		t.Error("cache size should differ from new bounds, triggering re-record")
+	}
+}
+
+// --- Animation Flow Tests (ADR-007 Phase 4) ---
+//
+// These tests verify that animated widgets (spinner) correctly re-dirty
+// themselves during Draw, and that consecutive frames produce fresh renders.
+// The key invariant: a boundary widget that calls SetNeedsRedraw(true)
+// inside Draw MUST remain dirty after drawBoundaryWidget completes.
+
+// animatingWidget simulates a spinner: calls SetNeedsRedraw(true) during Draw.
+type animatingWidget struct {
+	WidgetBase
+	drawCount int
+}
+
+func newAnimatingWidget() *animatingWidget {
+	w := &animatingWidget{}
+	w.SetVisible(true)
+	w.SetEnabled(true)
+	return w
+}
+
+func (w *animatingWidget) Layout(_ Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(48, 48))
+}
+
+func (w *animatingWidget) Draw(ctx Context, canvas Canvas) {
+	w.drawCount++
+	// Spinner pattern: re-dirty self for next frame.
+	w.SetNeedsRedraw(true)
+	if ctx != nil {
+		ctx.InvalidateRect(w.Bounds())
+	}
+}
+
+func (w *animatingWidget) Event(_ Context, _ event.Event) bool { return false }
+func (w *animatingWidget) Children() []Widget                  { return nil }
+
+// TestAnimatingBoundary_ReDirtiesSelfDuringDraw verifies that an animated
+// boundary widget (spinner) remains dirty after drawBoundaryWidget completes.
+// Without this, spinner freezes after first frame (cache hit forever).
+func TestAnimatingBoundary_ReDirtiesSelfDuringDraw(t *testing.T) {
+	RegisterSceneRecorder(stubSceneRecorder)
+	defer RegisterSceneRecorder(nil)
+
+	w := newAnimatingWidget()
+	w.SetRepaintBoundary(true)
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+
+	ctx := NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	canvas := &stubReplayCanvas{}
+
+	// Frame 1: first draw (cache miss — sceneDirty=true from SetRepaintBoundary).
+	drawBoundaryWidget(w, ctx, canvas, nil)
+
+	if w.drawCount != 1 {
+		t.Fatalf("frame 1: drawCount = %d, want 1", w.drawCount)
+	}
+
+	// After frame 1: widget must be re-dirtied (called SetNeedsRedraw in Draw).
+	if !w.NeedsRedraw() {
+		t.Error("frame 1: NeedsRedraw() = false after Draw; " +
+			"animated widget calls SetNeedsRedraw(true) during Draw, " +
+			"this flag must survive drawBoundaryWidget")
+	}
+	if !w.IsSceneDirty() {
+		t.Error("frame 1: IsSceneDirty() = false after Draw; " +
+			"SetNeedsRedraw on boundary calls InvalidateScene, " +
+			"scene must be dirty for next frame to trigger cache miss")
+	}
+
+	// Frame 2: must be cache miss (sceneDirty=true) — NOT cache hit.
+	drawBoundaryWidget(w, ctx, canvas, nil)
+
+	if w.drawCount != 2 {
+		t.Fatalf("frame 2: drawCount = %d, want 2; "+
+			"animation froze because boundary was cache-hit on second frame", w.drawCount)
+	}
+
+	// Frame 3: still animating.
+	drawBoundaryWidget(w, ctx, canvas, nil)
+
+	if w.drawCount != 3 {
+		t.Fatalf("frame 3: drawCount = %d, want 3", w.drawCount)
+	}
+}
+
+// TestAnimatingBoundary_DoesNotDirtyParent verifies that an animated boundary
+// widget's SetNeedsRedraw during Draw does NOT propagate to parent boundary.
+// Parent boundary must stay clean — only the animated widget re-records.
+func TestAnimatingBoundary_DoesNotDirtyParent(t *testing.T) {
+	RegisterSceneRecorder(stubSceneRecorder)
+	defer RegisterSceneRecorder(nil)
+
+	parent := newDrawTrackingWidget()
+	parent.SetRepaintBoundary(true)
+	parent.SetBounds(geometry.NewRect(0, 0, 800, 600))
+	// Clear initial sceneDirty from SetRepaintBoundary(true) so we can
+	// isolate whether the CHILD's SetNeedsRedraw propagates to parent.
+	parent.ClearSceneDirty()
+
+	child := newAnimatingWidget()
+	child.SetRepaintBoundary(true)
+	child.SetBounds(geometry.NewRect(100, 100, 148, 148))
+	child.SetParent(parent)
+
+	ctx := NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	canvas := &stubReplayCanvas{}
+
+	// First draw of child boundary.
+	drawBoundaryWidget(child, ctx, canvas, nil)
+
+	if child.drawCount != 1 {
+		t.Fatalf("child.drawCount = %d, want 1", child.drawCount)
+	}
+
+	// Child re-dirtied itself (animated).
+	if !child.IsSceneDirty() {
+		t.Error("child boundary should be scene-dirty (re-dirtied by animation)")
+	}
+
+	// Parent must NOT be dirty.
+	if parent.IsSceneDirty() {
+		t.Error("parent boundary should NOT be dirty; " +
+			"animated child's SetNeedsRedraw stops at child boundary, " +
+			"does not propagate to parent (Flutter markNeedsPaint)")
+	}
+}
+
+// TestDrawTree_RootBoundary_ChildBoundaryReached verifies that when root IS
+// a boundary and a child IS also a boundary, DrawTree reaches the child.
+// This is the gallery scenario: root boundary + spinner boundary.
+func TestDrawTree_RootBoundary_ChildBoundaryReached(t *testing.T) {
+	RegisterSceneRecorder(stubSceneRecorder)
+	defer RegisterSceneRecorder(nil)
+
+	// Root boundary contains a container with an animated child boundary.
+	root := newAnimContainerWidget()
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+
+	spinner := newAnimatingWidget()
+	spinner.SetRepaintBoundary(true)
+	spinner.SetBounds(geometry.NewRect(100, 100, 148, 148))
+	spinner.SetParent(root)
+	root.addChild(spinner)
+
+	ctx := NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+	canvas := &stubReplayCanvas{}
+
+	// Frame 1: both dirty (initial). Root records, child records inside.
+	stats := DrawTree(root, ctx, canvas)
+	_ = stats
+
+	rootDrew := root.drawCalled
+	spinnerDrew := spinner.drawCount > 0
+
+	if !rootDrew {
+		t.Error("frame 1: root.Draw() not called (initial cache miss expected)")
+	}
+	if !spinnerDrew {
+		t.Error("frame 1: spinner.Draw() not called; " +
+			"spinner is a child boundary inside root boundary, " +
+			"must be reached during root's Draw")
+	}
+
+	// Frame 2: spinner re-dirtied itself. Root is clean.
+	// Root should be cache-hit. But spinner inside root must still animate.
+	root.drawCalled = false
+	spinner.drawCount = 0
+
+	stats2 := DrawTree(root, ctx, canvas)
+
+	// KEY TEST: spinner must be drawn on frame 2.
+	// If spinner.drawCount == 0, animation is frozen.
+	if spinner.drawCount == 0 {
+		t.Errorf("frame 2: spinner.Draw() not called; animation frozen. "+
+			"Root is cache-hit (clean), but spinner boundary is dirty. "+
+			"DrawTree must visit child boundaries even when root is cache-hit. "+
+			"Stats: total=%d dirty=%d cached=%d",
+			stats2.TotalWidgets, stats2.DirtyWidgets, stats2.CachedWidgets)
+	}
+}
+
+// --- Test helpers for boundary draw ---
+
+// stubSceneRecorder creates a minimal scene recording canvas for tests.
+func stubSceneRecorder(s *scene.Scene, _, _ int) (Canvas, func()) {
+	return &stubReplayCanvas{}, func() {}
+}
+
+// stubReplayCanvas implements widget.Canvas for boundary draw tests.
+type stubReplayCanvas struct {
+	replayCount int
+}
+
+func (c *stubReplayCanvas) Clear(_ Color)                                                           {}
+func (c *stubReplayCanvas) DrawRect(_ geometry.Rect, _ Color)                                       {}
+func (c *stubReplayCanvas) FillRectDirect(_ geometry.Rect, _ Color)                                 {}
+func (c *stubReplayCanvas) StrokeRect(_ geometry.Rect, _ Color, _ float32)                          {}
+func (c *stubReplayCanvas) DrawRoundRect(_ geometry.Rect, _ Color, _ float32)                       {}
+func (c *stubReplayCanvas) StrokeRoundRect(_ geometry.Rect, _ Color, _ float32, _ float32)          {}
+func (c *stubReplayCanvas) DrawCircle(_ geometry.Point, _ float32, _ Color)                         {}
+func (c *stubReplayCanvas) StrokeCircle(_ geometry.Point, _ float32, _ Color, _ float32)            {}
+func (c *stubReplayCanvas) StrokeArc(_ geometry.Point, _ float32, _, _ float64, _ Color, _ float32) {}
+func (c *stubReplayCanvas) DrawLine(_, _ geometry.Point, _ Color, _ float32)                        {}
+func (c *stubReplayCanvas) DrawText(_ string, _ geometry.Rect, _ float32, _ Color, _ bool, _ TextAlign) {
+}
+func (c *stubReplayCanvas) MeasureText(_ string, _ float32, _ bool) float32 { return 0 }
+func (c *stubReplayCanvas) DrawImage(_ image.Image, _ geometry.Point)       {}
+func (c *stubReplayCanvas) PushClip(_ geometry.Rect)                        {}
+func (c *stubReplayCanvas) PushClipRoundRect(_ geometry.Rect, _ float32)    {}
+func (c *stubReplayCanvas) PopClip()                                        {}
+func (c *stubReplayCanvas) PushTransform(_ geometry.Point)                  {}
+func (c *stubReplayCanvas) PopTransform()                                   {}
+func (c *stubReplayCanvas) TransformOffset() geometry.Point                 { return geometry.Point{} }
+func (c *stubReplayCanvas) ScreenOriginBase() geometry.Point                { return geometry.Point{} }
+func (c *stubReplayCanvas) ClipBounds() geometry.Rect                       { return geometry.NewRect(0, 0, 9999, 9999) }
+func (c *stubReplayCanvas) ReplayScene(s *scene.Scene)                      { c.replayCount++ }
+
+var _ Canvas = (*stubReplayCanvas)(nil)
+
+// animContainerWidget is a simple container that draws children via child.Draw().
+type animContainerWidget struct {
+	WidgetBase
+	drawCalled bool
+	kids       []Widget
+}
+
+func newAnimContainerWidget() *animContainerWidget {
+	w := &animContainerWidget{}
+	w.SetVisible(true)
+	w.SetEnabled(true)
+	return w
+}
+
+func (w *animContainerWidget) addChild(child Widget) {
+	w.kids = append(w.kids, child)
+	w.AddChild(child)
+}
+
+func (w *animContainerWidget) Layout(_ Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(800, 600))
+}
+
+func (w *animContainerWidget) Draw(ctx Context, canvas Canvas) {
+	w.drawCalled = true
+	for _, child := range w.kids {
+		child.Draw(ctx, canvas)
+	}
+}
+
+func (w *animContainerWidget) Event(_ Context, _ event.Event) bool { return false }
+func (w *animContainerWidget) Children() []Widget                  { return w.kids }

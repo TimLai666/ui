@@ -724,38 +724,102 @@ via `FrameStats.DrawStats` for performance monitoring and validation.
 
 **Level 3: Per-widget pixel caching (implemented, Sub-Phase 2)**
 Clean subtrees are composited from cached pixel buffers instead of re-drawn.
-`RepaintBoundary` wraps a widget subtree and caches it as `image.RGBA`.
-On cache hit, the cached image is blitted directly via `canvas.DrawImage()`.
+**RepaintBoundary** (ADR-024) is a WidgetBase property (`SetRepaintBoundary(true)`).
+Each boundary has its own `scene.Scene` for display list caching.
 
-**Level 4: Tile-parallel rendering (implemented, Sub-Phase 3)**
-Large RepaintBoundary subtrees (>= 128x128 pixels) use `scene.Scene` +
-`scene.Renderer` for tile-parallel rendering. `SceneCanvas` adapts
-`widget.Canvas` to record drawing commands into a `scene.Scene`, which is
-then rasterized via parallel tile workers. Text is rendered via gg.Context
-pass-through to preserve MSDF quality. Small RepaintBoundaries use the
-traditional `gg.Context` path to avoid scene setup overhead.
+**Level 4: Per-Boundary GPU Textures (ADR-007 Phase 7, v0.1.19)**
+
+Retained-mode compositor with per-boundary GPU textures and frame skip:
+
+```
+desktop.draw()
+  → Frame()                       signals, layout, animations
+  → [EARLY RETURN if nothing dirty → 0% GPU idle]
+  → PaintBoundaryLayers()          re-record ONLY dirty+visible boundaries
+  → CollectDirtyRegions()          dirty tracker (AFTER recording for fresh ScreenOrigin)
+  → renderBoundaryTextures()       scene → GPU offscreen texture per boundary
+  → compositeTextures()            blit all textures to surface (non-MSAA)
+  → DrawOverlays()                 dropdowns/dialogs on top
+```
+
+**GPU performance:** 0% idle (frame skip), 8% with visible spinner (30fps).
+
+Each RepaintBoundary rendered into its own GPU offscreen texture. Child boundaries
+(depth > 0) are **skipped** during parent recording (DrawChild skip pattern --
+Flutter `paintChild`). Each child boundary gets its own GPU texture, composed
+separately during `compositeTextures`. When a child boundary is dirty, the root
+re-records cheaply (child content skipped), and the child re-renders its own
+texture independently.
+
+**Frame skip (0% GPU idle):**
+`desktop.draw` returns early when `!HasDirtyBoundariesOrNeedsRedraw()` and
+`!NeedsRedrawInTree()`. Previous frame's GPU output is valid. No GPU work.
+
+**Offscreen boundary culling:**
+`isBoundaryVisible()` checks CompositorClip intersection before recording.
+Offscreen animated widgets (spinner scrolled out of view) are not recorded →
+`ScheduleAnimationFrame` not called → animation pumper stops → 0% GPU.
+
+**DrawChild skip pattern (Flutter paintChild):**
+During `recordBoundary`, the `BoundaryRecorder` checks each child: if the child
+has `IsRepaintBoundary() == true`, it is skipped (not drawn into the parent
+scene). Instead, the child's GPU texture is composed at the correct position
+during `compositeTextures` with GPU scissor clipping applied per viewport
+(ScrollView). This means parent re-recording is cheap -- it only draws
+non-boundary children (text, backgrounds, dividers) while boundary children
+retain their cached textures.
+
+**Force root re-recording:**
+`desktop.draw` checks `NeedsRedrawInTreeNonBoundary` on the root widget.
+If any non-boundary descendant is dirty, root re-records. Boundary descendants
+manage their own dirty state independently. The `onBoundaryDirty` callback is
+suppressed during this forced invalidation to prevent restarting the animation
+pumper from data tickers.
+
+**Compositor scissor clipping:**
+Items inside ScrollView viewports are clipped via GPU scissor rect during
+texture composition (`compositeTextures`), not during scene recording. Each
+boundary group in the blit pass has per-group scissor applied.
+
+**ScreenOriginBase:**
+`recordBoundary` sets `ScreenOriginBase` from the boundary widget's screen
+position before recording child content. This ensures nested boundaries get
+correct screen-space origins for compositor texture placement (fixes nested
+boundary positioning in ScrollView).
+
+**Scrollbar track repeat (Qt6 timing):**
+Track repeat uses Qt6 `QScrollBar` timing: 500ms initial delay, 50ms repeat
+interval. Event-driven (no polling goroutine) to prevent root re-recording
+flood.
+
+**SVG icon rendering** uses CPU rasterization (`RasterizerAnalytic`) into
+scene.Image, with a 2-level LRU IconCache (Level 1: parsed docs, Level 2:
+rasterized bitmaps by ptr+size+color). DPI-aware: renders at physical pixel
+size (`ceil(logical × deviceScale)`).
 
 The dirty-tracking flow:
 
 ```
-Signal.Set(value)
-  -> BindToScheduler -> Scheduler.MarkDirty(widget)
-    -> Scheduler.SetOnDirty callback -> RequestRedraw()
-      -> Frame()
-        -> scheduler.Flush() -> flushFn sets needsRedraw on dirty widgets
-        -> Layout pass (if needed, also marks all widgets dirty)
-        -> Draw pass: DrawTree(root, ctx, canvas) -> DrawStats
-          - Draws root widget (which draws children)
-          - Collects dirty/clean/skipped counts
-          - ClearRedrawInTree() clears all flags after draw
+Widget state change (hover, click, signal)
+  → SetNeedsRedraw(true)
+    → propagateDirtyUpward(parent) → root boundary → InvalidateScene()
+      → onBoundaryDirty callback → ctx.InvalidateRect() → RequestRedraw()
+        → desktop.draw: NeedsRedrawInTree check → force root re-record
+          → PaintBoundaryLayers: recordBoundary() with DrawChild skip
+            → SceneCanvas records non-boundary widgets into scene.Scene
+              → renderSingleBoundary: GPUSceneRenderer → FlushGPUWithView(texture)
+                → compositeTextures: DrawGPUTextureBase + scissor clip → surface
 ```
 
 Key functions:
-- `widget.DrawTree(w, ctx, canvas)` -- draws root, returns `DrawStats`
-- `widget.CollectDrawStats(w)` -- walks tree without drawing, returns stats
-- `widget.NeedsRedrawInTree(w)` -- short-circuit check for any dirty widget
+- `PaintBoundaryLayersWithContext(root, _, ctx)` — re-records dirty boundaries
+- `renderBoundaryTextures(root, cc)` — renders scenes into GPU textures
+- `compositeTextures(root, cc, w, h)` — blits textures with scissor clip to surface
+- `paintBoundaryWithDepth(w, ctx, depth)` — depth-aware dirty propagation
+- `recordBoundary(w, ctx)` — records scene with DrawChild skip for child boundaries
 - `widget.ClearRedrawInTree(w)` -- clears all flags recursively
 - `widget.MarkRedrawInTree(w)` -- marks all widgets dirty (used by resize, theme change)
+- `widget.NeedsRedrawInTree(w)` -- checks if any descendant needs redraw
 
 ### Canvas Implementation
 
@@ -1298,13 +1362,13 @@ The `registry/` package provides a global registry for widget factories:
 
 | Dependency | Purpose | Version |
 |------------|---------|---------|
-| `github.com/gogpu/gg` | 2D graphics + scene.Scene tile-parallel rendering | v0.37.1 |
-| `github.com/gogpu/gpucontext` | Window/Platform provider interfaces | v0.10.0 |
-| `github.com/gogpu/gogpu` | Application framework, windowing (examples only) | v0.24.2 |
+| `github.com/gogpu/gg` | 2D graphics + scene.Scene tile-parallel rendering | v0.46.3 |
+| `github.com/gogpu/gpucontext` | Window/Platform provider interfaces | v0.18.0 |
+| `github.com/gogpu/gogpu` | Application framework, windowing (examples only) | v0.34.0 |
 | `github.com/coregx/signals` | Reactive state management | v0.1.0 |
-| `golang.org/x/image` | Font rendering infrastructure | v0.37.0 |
+| `golang.org/x/image` | Font rendering infrastructure | v0.39.0 |
 
-**Indirect:** gogpu/wgpu v0.21.1, gogpu/naga v0.14.7, gogpu/gputypes v0.3.0, go-text/typesetting v0.3.4, golang.org/x/text v0.35.0
+**Indirect:** gogpu/wgpu v0.27.1, gogpu/naga v0.17.13, gogpu/gputypes v0.5.0, go-text/typesetting v0.3.4, golang.org/x/text v0.35.0
 
 Go version: **1.25.0**
 
@@ -1382,4 +1446,4 @@ All types in `geometry/` are small structs passed by value. Operations return ne
 
 ---
 
-*This document reflects the actual codebase as of March 15, 2026 (61 commits on feat/ui-058-hbox-direction).*
+*This document reflects the actual codebase as of May 10, 2026 (v0.1.19 — per-boundary GPU textures, 0% GPU idle, offscreen culling, 34 integration tests).*

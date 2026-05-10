@@ -152,18 +152,37 @@ func TestSetValue_SameValueNoRedraw(t *testing.T) {
 
 // --- Layout Tests ---
 
-func TestLayout_RespectsConstraints(t *testing.T) {
+func TestLayout_TightConstraintsLargerThanDiameter(t *testing.T) {
 	ctx := widget.NewContext()
+	// Tight(64,64) = Min=Max=64. Spinner diameter=48.
+	// Spinner is intrinsically sized — returns diameter, not parent's tight.
+	// Flutter: CircularProgressIndicator inside SizedBox(48) ignores parent.
 	constraints := geometry.Tight(geometry.Sz(64, 64))
 
-	w := progress.New()
+	w := progress.New() // default diameter=48
 	size := w.Layout(ctx, constraints)
 
-	if size.Width != 64 {
-		t.Errorf("width = %v, want 64 (tight)", size.Width)
+	if size.Width != 48 {
+		t.Errorf("width = %v, want 48 (diameter, not parent tight 64)", size.Width)
 	}
-	if size.Height != 64 {
-		t.Errorf("height = %v, want 64 (tight)", size.Height)
+	if size.Height != 48 {
+		t.Errorf("height = %v, want 48 (diameter, not parent tight 64)", size.Height)
+	}
+}
+
+func TestLayout_TightConstraintsSmallerThanDiameter(t *testing.T) {
+	ctx := widget.NewContext()
+	// Tight(32,32) = constrained smaller than diameter. Respect it.
+	constraints := geometry.Tight(geometry.Sz(32, 32))
+
+	w := progress.New() // default diameter=48
+	size := w.Layout(ctx, constraints)
+
+	if size.Width != 32 {
+		t.Errorf("width = %v, want 32 (tight < diameter)", size.Width)
+	}
+	if size.Height != 32 {
+		t.Errorf("height = %v, want 32 (tight < diameter)", size.Height)
 	}
 }
 
@@ -201,6 +220,27 @@ func TestLayout_CustomSize(t *testing.T) {
 	}
 	if size.Height != 80 {
 		t.Errorf("height = %v, want 80 (custom size)", size.Height)
+	}
+}
+
+// TestLayout_DoesNotExpandInVBox verifies that spinner returns EXACT
+// diameter×diameter even when parent VBox gives wide MinWidth constraints.
+// Without this, spinner bounds = 800×48 → cyan dirty overlay shows full width.
+func TestLayout_DoesNotExpandInVBox(t *testing.T) {
+	ctx := widget.NewContext()
+	// VBox gives: MinWidth=800, MaxWidth=800, MinHeight=0, MaxHeight=600
+	constraints := geometry.BoxConstraints(800, 800, 0, 600)
+
+	w := progress.New(progress.Size(48))
+	size := w.Layout(ctx, constraints)
+
+	if size.Width != 48 {
+		t.Errorf("spinner width = %v, want 48; spinner should NOT expand "+
+			"to parent width (VBox MinWidth=800). Current: spinner occupies "+
+			"800px wide dirty region instead of 48px", size.Width)
+	}
+	if size.Height != 48 {
+		t.Errorf("spinner height = %v, want 48", size.Height)
 	}
 }
 
@@ -364,13 +404,23 @@ func TestDraw_IndeterminateRequestsRedraw(t *testing.T) {
 	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
 	ctx := widget.NewContext()
 	ctx.SetNow(time.Now())
+
+	// Track ScheduleAnimationFrame calls (enterprise animation scheduling).
+	animFrameScheduled := false
+	ctx.SetOnScheduleAnimation(func() {
+		animFrameScheduled = true
+	})
+
 	canvas := &recordingCanvas{}
 
 	w.ClearRedraw()
 	w.Draw(ctx, canvas)
 
-	if ctx.InvalidatedRect().IsEmpty() {
-		t.Error("indeterminate should call InvalidateRect after draw")
+	if !animFrameScheduled {
+		t.Error("indeterminate should call ScheduleAnimationFrame after draw")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("indeterminate should set NeedsRedraw for next frame")
 	}
 }
 
@@ -902,6 +952,12 @@ func TestDraw_IndeterminateMultipleFrames(t *testing.T) {
 	ctx := widget.NewContext()
 	now := time.Now()
 
+	// Track ScheduleAnimationFrame calls per frame.
+	animFrameCount := 0
+	ctx.SetOnScheduleAnimation(func() {
+		animFrameCount++
+	})
+
 	// Draw 5 frames, each advancing time.
 	for i := range 5 {
 		ctx.SetNow(now.Add(time.Duration(i) * 100 * time.Millisecond))
@@ -911,9 +967,10 @@ func TestDraw_IndeterminateMultipleFrames(t *testing.T) {
 		if canvas.strokeArcCount == 0 {
 			t.Errorf("frame %d: should draw rotating arc", i)
 		}
-		if ctx.InvalidatedRect().IsEmpty() {
-			t.Errorf("frame %d: should request redraw via InvalidateRect", i)
-		}
+	}
+
+	if animFrameCount != 5 {
+		t.Errorf("ScheduleAnimationFrame called %d times, want 5 (once per frame)", animFrameCount)
 	}
 }
 
@@ -988,5 +1045,126 @@ func (c *recordingCanvas) PopClip()                                     {}
 func (c *recordingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *recordingCanvas) PopTransform()                                {}
 func (c *recordingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *recordingCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *recordingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *recordingCanvas) ReplayScene(_ *scene.Scene)                   {}
+
+// --- ADR-024 RepaintBoundary Propagation Tests ---
+
+// TestSpinner_DrawInvalidatesOwnScene verifies that the indeterminate
+// spinner's continuous animation invalidates its OWN scene (not parent).
+// Spinner is its own RepaintBoundary — SetNeedsRedraw stops at self.
+func TestSpinner_DrawInvalidatesOwnScene(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	constraints := geometry.Constraints{
+		MinWidth: 48, MaxWidth: 48,
+		MinHeight: 48, MaxHeight: 48,
+	}
+	w.Layout(ctx, constraints)
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+
+	w.ClearRedraw()
+	w.ClearSceneDirty()
+
+	canvas := &recordingCanvas{}
+	w.Draw(ctx, canvas)
+
+	if !w.IsSceneDirty() {
+		t.Error("spinner.IsSceneDirty() = false after Draw; " +
+			"spinner must invalidate own scene for animation continuity")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("spinner.NeedsRedraw() = false after Draw; " +
+			"continuous animation must request next frame")
+	}
+}
+
+// TestSpinner_IsRepaintBoundaryByDefault verifies that indeterminate spinner
+// sets itself as RepaintBoundary so animation dirty propagation stops at
+// the spinner, not at the root boundary.
+func TestSpinner_IsRepaintBoundaryByDefault(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+
+	if !w.IsRepaintBoundary() {
+		t.Error("indeterminate spinner should be RepaintBoundary by default; " +
+			"without this, spinner invalidates root boundary every frame → " +
+			"full tree re-record at 30fps, defeating RepaintBoundary caching")
+	}
+}
+
+// TestSpinner_DeterminateIsNotBoundary verifies that determinate (static)
+// progress indicator is NOT a RepaintBoundary — no animation, no need.
+func TestSpinner_DeterminateIsNotBoundary(t *testing.T) {
+	w := progress.New(progress.Value(0.5))
+
+	if w.IsRepaintBoundary() {
+		t.Error("determinate progress should NOT be RepaintBoundary (no animation)")
+	}
+}
+
+// TestSpinner_DrawDoesNotInvalidateParentBoundary verifies that spinner
+// animation stays within its own boundary — parent root boundary is NOT
+// invalidated. This is critical for performance: spinner at 30fps must
+// NOT cause full tree re-record.
+func TestSpinner_DrawDoesNotInvalidateParentBoundary(t *testing.T) {
+	w := progress.New(progress.Indeterminate(true))
+
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+
+	constraints := geometry.Constraints{
+		MinWidth: 48, MaxWidth: 48,
+		MinHeight: 48, MaxHeight: 48,
+	}
+	w.Layout(ctx, constraints)
+	w.SetBounds(geometry.NewRect(0, 0, 48, 48))
+
+	// Parent = root boundary.
+	parent := &progressBoundaryParent{}
+	parent.SetVisible(true)
+	parent.SetRepaintBoundary(true)
+	w.SetParent(parent)
+
+	// Clear state.
+	w.ClearRedraw()
+	parent.ClearSceneDirty()
+	parent.sceneDirtied = false
+
+	// Draw spinner frame.
+	canvas := &recordingCanvas{}
+	w.Draw(ctx, canvas)
+
+	// Spinner's OWN boundary should be dirty (it IS the boundary).
+	if w.IsSceneDirty() {
+		// This is expected — spinner invalidates its own scene.
+	}
+
+	// Parent root boundary must NOT be invalidated.
+	if parent.sceneDirtied {
+		t.Error("parent root boundary invalidated by spinner Draw; " +
+			"spinner must be its own RepaintBoundary so propagation stops " +
+			"at spinner level, not root. Without this fix, full tree " +
+			"re-records every frame (30fps) → performance killed")
+	}
+}
+
+// progressBoundaryParent tracks InvalidateScene for spinner tests.
+type progressBoundaryParent struct {
+	widget.WidgetBase
+	sceneDirtied bool
+}
+
+func (w *progressBoundaryParent) InvalidateScene() {
+	w.WidgetBase.InvalidateScene()
+	w.sceneDirtied = true
+}
+func (w *progressBoundaryParent) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(200, 200))
+}
+func (w *progressBoundaryParent) Draw(_ widget.Context, _ widget.Canvas)     {}
+func (w *progressBoundaryParent) Event(_ widget.Context, _ event.Event) bool { return false }
+func (w *progressBoundaryParent) Children() []widget.Widget                  { return nil }

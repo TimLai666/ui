@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.19] — 2026-05-10
+
+### Added
+
+- **Per-boundary GPU textures** (ADR-007 Phase 7) — each RepaintBoundary rendered into own offscreen GPU texture. Clean boundaries reuse previous texture (0 GPU work). Compositor blits via non-MSAA path. No full widget tree traversal per frame.
+- **0% GPU idle** — frame skip in `desktop.draw`: early return when no boundary is dirty and no widget needs redraw. Previous frame's GPU output reused. Verified 0% GPU on all 6 examples.
+- **Offscreen boundary culling** — `isBoundaryVisible()` checks CompositorClip intersection before recording. Offscreen spinner → Draw never runs → ScheduleAnimationFrame not called → animation pumper stops → 0% GPU.
+- **34 integration tests** for render loop pipeline — multi-frame spinner lifecycle, data ticker isolation, recording order, ScreenBounds accuracy, clean state early return, visibility matrix (14 subtests).
+- **DrawChild skip pattern** (Flutter `paintChild`) — child boundaries are SKIPPED during parent recording. Each child boundary gets its own GPU texture, composed separately. Parent scene contains only non-boundary children. When a child boundary is dirty, the root re-records cheaply (child content skipped), then child re-renders its own texture.
+- **Compositor scissor clipping** — ScrollView viewport clipping applied via GPU scissor rect during texture composition. Items outside the viewport are clipped at the GPU level, not during scene recording.
+- **AnimationScheduler** (Flutter `scheduleFrame` pattern) — deferred animation frame requests at 30fps. Separates animation-driven from interaction-driven invalidation.
+- **RepaintBoundary as WidgetBase property** (ADR-024) — `SetRepaintBoundary(true)` on any widget. Flutter pattern replaces wrapper-based approach. ListView items auto-boundary.
+- **CrossAxisAlignment** for VBox/HBox — `CrossAxisCenter`, `CrossAxisStart`, `CrossAxisEnd`, `CrossAxisStretch`. Flutter `CrossAxisAlignment` equivalent.
+- **TextModeController** optional interface — `widget.TextMode` enum (Auto/MSDF/Vector/Bitmap/GlyphMask) for explicit text rendering mode control during zoom (issue #94).
+- **SVG icons in SceneCanvas** — `SVGRenderer` + `SVGFiller` interfaces on SceneCanvas. CPU rasterization via `RasterizerAnalytic` (bypasses GPU queueing on temp context).
+- **2-level IconCache** (enterprise pattern) — Level 1: parsed `svg.Document` by pointer. Level 2: rasterized `*scene.Image` by (ptr, w, h, color) with LRU eviction (256 max). Before: 7.5ms/frame (50 icons). After: <1µs (cache hit).
+- **DPI-aware icon rendering** (ADR-026) — render SVG icons at `ceil(logicalSize × deviceScale)` physical pixels. Qt6/Chromium/IntelliJ enterprise pattern. `DeviceScaler` interface propagates scale.
+- **Damage rects passthrough** — dirty boundary rects → gg `SetPresentDamage()` → OS compositor partial present.
+- **Debug overlays** (ADR-023) — `GOGPU_DEBUG_DIRTY=1` cyan flash on dirty widgets, `GOGPU_DEBUG_DAMAGE=1` green flash on gg damage regions.
+- **Dirty tracking** — per-item `InvalidateRect` for ListView, `StampScreenOrigin` for correct screen-space positions, viewport clip in dirty collector.
+- **Hover E2E tests** — 3 tests: button hover → boundary dirty propagation, deep nesting, full Window.HandleEvent chain.
+- **36 IconCache tests** — 99%+ coverage on cache logic.
+- **28 DPI-aware rendering tests** — scale 1x/2x, cache key separation, edge cases.
+
+### Fixed
+
+- **Double rendering of boundary items** (#94, #91) — `renderBoundaryTextures` used `depth > 1` threshold. ListView items (depth 1) rendered into BOTH root texture (inline) AND own textures (overlay blit). Alpha-blended overlap = ghost text artifacts. Fix: `depth > 0` — only root gets offscreen texture.
+- **Inline child boundary hover** — dirty child boundaries didn't trigger root scene re-recording. Root texture stayed stale on hover/state changes. Fix: `paintBoundaryWithDepth` re-records parent when inline child dirty.
+- **ListView hover background** — hover on ListView items now triggers root re-recording with DrawChild skip. Child boundaries are skipped during parent recording, so root re-records cheaply while items retain their own textures.
+- **Force root re-recording** — `NeedsRedrawInTree` check in `desktop.draw` ensures root scene re-records when any descendant widget is dirty, even when the root boundary itself is clean.
+- **ScreenOriginBase in recordBoundary** — `ScreenOriginBase` set from boundary widget's screen position before recording. Nested boundaries get correct screen-space origins for compositor texture placement.
+- **Scrollbar track repeat timing** — Qt6-inspired timing: 500ms initial delay, 50ms repeat interval (QScrollBar pattern). Prevents root re-recording flood from polling-based repeat.
+- **SVG icons missing** — temp `gg.NewContext()` with GPU accelerator active queued shapes instead of CPU pixmap rendering. `dc.Image()` returned empty. Fix: `SetRasterizerMode(RasterizerAnalytic)`.
+- **TextField/Slider/LineChart width** — hardcoded preferred widths (100px, 200px, 308px). Now fill `MaxWidth` from layout constraints.
+- **Nested boundary clip** — `DrawChild` for nested boundaries during BoundaryRecording draws directly (preserves parent PushClip).
+- **ScreenOrigin positioning** — depth-based nesting, `ScreenOrigin()` for compositor texture placement.
+- **Spinner intrinsic layout** — 48×48 ignores parent MinWidth.
+- **Damage rect screen coords** — `onBoundaryDirty` callback now uses `ScreenOrigin + Bounds` for screen-space damage rect (was local bounds at 0,0).
+- **CollectDirtyRegions ordering** — moved after `PaintBoundaryLayers` so `ScreenOrigin` is fresh from root recording. Fixes debug overlay showing damage at (0,0).
+- **Pumper isolation** — suppress `onBoundaryDirty` when `desktop.draw` forces root `InvalidateScene`. Data tickers (1/sec) no longer restart 30fps animation pumper.
+- **Viewport culling removed from BoxWidget** — compositor-level culling handles visibility (Flutter/Chrome/Qt6 pattern). Fixes spinner "floating" when viewport culling skipped `StampScreenOrigin`.
+
+### Changed (Dependencies)
+
+- **gg** v0.44.1 → **v0.46.4** (LCD ClearType glyph mask ADR-024, TagText scene text ADR-022, atlas zoom resilience, deferred ortho projection, blit scissor groups)
+- **gogpu** v0.31.0 → **v0.34.0** (LCD ClearType, SubpixelLayout, three-mode D2 render loop, EventSource fix)
+- **gpucontext** v0.16.0 → **v0.18.0** (SubpixelLayout API, AdapterInfo)
+
 ## [0.1.18] — 2026-05-01
 
 ### Changed (Dependencies)

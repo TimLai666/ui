@@ -78,6 +78,9 @@ func (m *mockPlatformProvider) DarkMode() bool     { return m.darkMode }
 func (m *mockPlatformProvider) ReduceMotion() bool { return false }
 func (m *mockPlatformProvider) HighContrast() bool { return false }
 func (m *mockPlatformProvider) FontScale() float32 { return m.fontScale }
+func (m *mockPlatformProvider) SubpixelLayout() gpucontext.SubpixelLayout {
+	return gpucontext.SubpixelNone
+}
 
 // mockEventSource implements gpucontext.EventSource and gpucontext.PointerEventSource for testing.
 type mockEventSource struct {

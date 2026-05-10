@@ -296,6 +296,9 @@ func (c *MockCanvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
 
+// ScreenOriginBase returns the screen-space base offset (always zero for mock).
+func (c *MockCanvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
+
 // ClipBounds returns a large default clip rectangle.
 func (c *MockCanvas) ClipBounds() geometry.Rect {
 	return geometry.NewRect(0, 0, 10000, 10000)

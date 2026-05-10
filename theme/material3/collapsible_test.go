@@ -251,5 +251,6 @@ func (c *colMockCanvas) PopClip()                                     {}
 func (c *colMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *colMockCanvas) PopTransform()                                {}
 func (c *colMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *colMockCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *colMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *colMockCanvas) ReplayScene(_ *scene.Scene)                   {}

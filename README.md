@@ -128,7 +128,7 @@ func main() {
 | `geometry` | Point, Size, Rect, Constraints, Insets | 98.8% |
 | `event` | MouseEvent, KeyEvent, WheelEvent, FocusEvent, Modifiers | 100% |
 | `widget` | Widget, WidgetBase, Context, Canvas, Lifecycle (mount/unmount), SchedulerRef | 100% |
-| `internal/render` | Canvas, SceneCanvas (tile-parallel), Renderer using gogpu/gg | 96.5% |
+| `internal/render` | Canvas, SceneCanvas, IconCache (2-level LRU), DPI-aware SVG | 96.5% |
 | `internal/layout` | Flex, Stack, Grid layout engines | 89.9% |
 
 ### MVP (Phase 1)
@@ -199,14 +199,16 @@ func main() {
 | `theme/fluent` | Microsoft Fluent Design: 9 painters, accent colors, inner focus ring, light/dark | 96%+ |
 | `theme/cupertino` | Apple HIG: 9 painters, iOS toggle switch, segmented control, pill buttons | 96%+ |
 | `theme/font` | Font Registry: CSS weight matching (W3C spec), Weight 100-900, Style, Family/Face | 97.7% |
-| `icon` | SVG icons (JetBrains expui), vector path icons, De Casteljau bezier, gg/svg renderer | 97%+ |
+| `icon` | SVG icons (JetBrains expui), 2-level cache, DPI-aware rasterization, gg/svg renderer | 97%+ |
 | `i18n` | Internationalization: Locale, Bundle, Translator, CLDR plural rules, RTL, LocaleSignal | 97.9% |
 | `dnd` | Drag and drop: DragSource/DropTarget interfaces, Manager, 5px threshold, Escape cancel | 99.3% |
 | `offscreen` | Headless widget rendering: CPU-only `*image.RGBA` output, no GPU/window/app required | 100% |
 | `uitest` | Testing utilities: MockCanvas, MockContext, event factories, widget helpers, assertions | 93.1% |
 | `internal/dirty` | Dirty region tracking: Collector, Tracker, merge algorithm, partial repaints | 100% |
 
-**Total: ~171,000 lines of code | 55+ packages | ~6,800 tests | ~97% average coverage**
+| `compositor` | Layer Tree: OffsetLayer, PictureLayer, ClipRectLayer, OpacityLayer | 95%+ |
+
+**Total: ~170,000+ lines of code | 56+ packages | ~6,800+ tests | 97%+ average coverage**
 
 ---
 
@@ -238,7 +240,8 @@ func main() {
 ├─────────────────────────────────────────────────────────────┤
 │  app/ + FocusManager │  focus/ │  overlay/ │  render/       │
 ├─────────────────────────────────────────────────────────────┤
-│  desktop/            (scene composition compositor, ADR-007) │
+│  desktop/            (Layer Tree Compositor, ADR-007)       │
+│  compositor/         (OffsetLayer, PictureLayer, Compositor)│
 │  offscreen/          (headless widget → *image.RGBA)        │
 ├─────────────────────────────────────────────────────────────┤
 │  layout/           │  state/         │  a11y/               │
@@ -252,7 +255,7 @@ func main() {
 ├─────────────────────────────────────────────────────────────┤
 │  internal/render   │  internal/layout│  internal/focus      │
 │  Canvas, Scene,    │  Flex, Grid     │  Manager, Ring       │
-│  ImageCache (LRU)  │  internal/dirty │  Tracker, Collector  │
+│  IconCache (LRU)   │  internal/dirty │  Tracker, Collector  │
 ├─────────────────────────────────────────────────────────────┤
 │  gogpu/gg          │  gpucontext     │  coregx/signals      │
 │  2D Graphics       │  Shared Ifaces  │  State Management    │
@@ -696,7 +699,7 @@ go get github.com/gogpu/gg@latest
 | [gogpu/wgpu](https://github.com/gogpu/wgpu) | Pure Go WebGPU — Vulkan, Metal, GLES, Software |
 | [gogpu/naga](https://github.com/gogpu/naga) | Shader compiler — WGSL to SPIR-V, MSL, GLSL |
 
-**Total ecosystem: 300K+ lines of Pure Go** — no CGO, no Rust, no C.
+**Total ecosystem: 800K+ lines of Pure Go** — no CGO, no Rust, no C.
 
 ---
 

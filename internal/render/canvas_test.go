@@ -439,6 +439,34 @@ func BenchmarkCanvas_PushPopTransform(b *testing.B) {
 	}
 }
 
+func TestCanvas_TextModeController(t *testing.T) {
+	canvas := newTestCanvas(100, 100)
+
+	tc, ok := widget.Canvas(canvas).(widget.TextModeController)
+	if !ok {
+		t.Fatal("Canvas should implement TextModeController")
+	}
+
+	if tc.TextMode() != widget.TextModeAuto {
+		t.Errorf("default TextMode = %v, want Auto", tc.TextMode())
+	}
+
+	tc.SetTextMode(widget.TextModeMSDF)
+	if tc.TextMode() != widget.TextModeMSDF {
+		t.Errorf("TextMode = %v, want MSDF", tc.TextMode())
+	}
+
+	tc.SetTextMode(widget.TextModeVector)
+	if tc.TextMode() != widget.TextModeVector {
+		t.Errorf("TextMode = %v, want Vector", tc.TextMode())
+	}
+
+	tc.SetTextMode(widget.TextModeAuto)
+	if tc.TextMode() != widget.TextModeAuto {
+		t.Errorf("TextMode = %v, want Auto after reset", tc.TextMode())
+	}
+}
+
 func BenchmarkCanvas_Clear(b *testing.B) {
 	canvas := newTestCanvas(800, 600)
 	color := widget.ColorWhite

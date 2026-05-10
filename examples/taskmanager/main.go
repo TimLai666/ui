@@ -174,7 +174,7 @@ func buildCPUSection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.TitleFn(func() string { return sim.cpuTitle.Get() }),
+		collapsible.TitleSignal(sim.cpuTitle),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),
@@ -216,7 +216,7 @@ func buildMemorySection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.TitleFn(func() string { return sim.memTitle.Get() }),
+		collapsible.TitleSignal(sim.memTitle),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),
@@ -252,7 +252,7 @@ func buildDiskSection(sim *simState) *collapsible.Widget {
 	).Gap(8).Padding(12).Background(colorSurface).Rounded(6)
 
 	return collapsible.New(
-		collapsible.TitleFn(func() string { return sim.diskTitle.Get() }),
+		collapsible.TitleSignal(sim.diskTitle),
 		collapsible.Content(content),
 		collapsible.Expanded(true),
 		collapsible.Animated(true),

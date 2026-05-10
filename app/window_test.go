@@ -456,6 +456,7 @@ func (m *mockCanvas) PopClip()                                     {}
 func (m *mockCanvas) PushTransform(geometry.Point)                 {}
 func (m *mockCanvas) PopTransform()                                {}
 func (m *mockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (m *mockCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (m *mockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (m *mockCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -1759,4 +1760,110 @@ func (m *mockBoundaryWithScreenBounds) Bounds() geometry.Rect {
 
 func (m *mockBoundaryWithScreenBounds) ScreenBounds() geometry.Rect {
 	return m.screenBounds
+}
+
+// --- Cursor regression tests (2026-05-07) ---
+
+// TestCursorNotResetByFrame verifies that Frame() does not clobber a cursor
+// set during event handling. Before the fix, ResetCursor was called in Frame()
+// after layout, which overwrote CursorPointer set by a widget's Event handler.
+// Regression: ResetCursor in Frame() erased cursor set by Event handler (2026-05-07)
+func TestCursorNotResetByFrame(t *testing.T) {
+	pp := &mockPlatformProvider{fontScale: 1.0}
+	a := New(WithPlatformProvider(pp))
+	w := a.Window()
+
+	// Use a widget that sets CursorPointer during its Event handler.
+	cw := &cursorSettingWidget{cursor: widget.CursorPointer}
+	cw.SetVisible(true)
+	cw.SetEnabled(true)
+	w.SetRoot(cw)
+
+	// Simulate an event that causes the widget to set CursorPointer.
+	me := event.NewMouseEvent(
+		event.MousePress,
+		event.ButtonLeft,
+		event.ButtonStateLeft,
+		geometry.Pt(50, 25),
+		geometry.Pt(50, 25),
+		event.ModNone,
+	)
+	w.HandleEvent(me)
+
+	// Verify cursor was set.
+	if w.Context().Cursor() != widget.CursorPointer {
+		t.Fatal("precondition: cursor should be Pointer after event")
+	}
+
+	// Call Frame() — this must NOT reset the cursor back to Default.
+	w.Frame()
+
+	if w.Context().Cursor() != widget.CursorPointer {
+		t.Errorf("cursor = %v after Frame(), want CursorPointer; "+
+			"Frame() must not clobber cursor set during event handling",
+			w.Context().Cursor())
+	}
+}
+
+// TestCursorResetOnHoverChange verifies that when the hover target changes
+// (e.g., mouse moves from an interactive widget to empty space), the cursor
+// is reset to Default. Without this, cursor remained as Pointer on
+// non-interactive areas after leaving a button.
+// Regression: cursor stuck as Pointer after leaving interactive widget (2026-05-07)
+func TestCursorResetOnHoverChange(t *testing.T) {
+	pp := &mockPlatformProvider{fontScale: 1.0}
+	a := New(WithPlatformProvider(pp))
+	w := a.Window()
+
+	// cursorWidget sets Pointer on MouseEnter.
+	btn := &hoverCursorWidget{cursor: widget.CursorPointer}
+	btn.SetVisible(true)
+	btn.SetEnabled(true)
+	btn.SetBounds(geometry.NewRect(10, 10, 100, 40))
+	btn.SetScreenOrigin(geometry.Pt(10, 10))
+
+	root := newHoverContainer(btn)
+	w.SetRoot(root)
+
+	// Move mouse into the button — cursor should become Pointer.
+	w.HandleEvent(event.NewMouseEvent(
+		event.MouseMove, event.ButtonNone, 0,
+		geometry.Pt(50, 25), geometry.Pt(50, 25), event.ModNone,
+	))
+
+	if w.Context().Cursor() != widget.CursorPointer {
+		t.Fatal("precondition: cursor should be Pointer when over button")
+	}
+
+	// Move mouse away from button to empty area.
+	w.HandleEvent(event.NewMouseEvent(
+		event.MouseMove, event.ButtonNone, 0,
+		geometry.Pt(400, 400), geometry.Pt(400, 400), event.ModNone,
+	))
+
+	if w.Context().Cursor() != widget.CursorDefault {
+		t.Errorf("cursor = %v after leaving button, want CursorDefault; "+
+			"updateHover must reset cursor when hover target changes",
+			w.Context().Cursor())
+	}
+}
+
+// hoverCursorWidget sets a cursor on MouseEnter.
+type hoverCursorWidget struct {
+	widget.WidgetBase
+	cursor widget.CursorType
+}
+
+func (w *hoverCursorWidget) Layout(_ widget.Context, c geometry.Constraints) geometry.Size {
+	return c.Constrain(geometry.Sz(100, 40))
+}
+
+func (w *hoverCursorWidget) Draw(_ widget.Context, _ widget.Canvas) {}
+
+func (w *hoverCursorWidget) Event(ctx widget.Context, e event.Event) bool {
+	if me, ok := e.(*event.MouseEvent); ok && me.MouseType == event.MouseEnter {
+		ctx.SetCursor(w.cursor)
+		return true
+	}
+	return false
 }

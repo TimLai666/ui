@@ -262,5 +262,6 @@ func (c *treeMockCanvas) PopClip()                                     {}
 func (c *treeMockCanvas) PushTransform(_ geometry.Point)               {}
 func (c *treeMockCanvas) PopTransform()                                {}
 func (c *treeMockCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *treeMockCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *treeMockCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *treeMockCanvas) ReplayScene(_ *scene.Scene)                   {}
