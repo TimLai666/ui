@@ -63,6 +63,7 @@ func (c *trackingCanvas) PopClip()                                     {}
 func (c *trackingCanvas) PushTransform(_ geometry.Point)               {}
 func (c *trackingCanvas) PopTransform()                                {}
 func (c *trackingCanvas) TransformOffset() geometry.Point              { return geometry.Point{} }
+func (c *trackingCanvas) ScreenOriginBase() geometry.Point             { return geometry.Point{} }
 func (c *trackingCanvas) ClipBounds() geometry.Rect                    { return geometry.NewRect(0, 0, 10000, 10000) }
 func (c *trackingCanvas) ReplayScene(_ *scene.Scene)                   {}
 
@@ -186,6 +187,13 @@ func setupFirstFrameWindow(root widget.Widget) (*Window, *trackingCanvas) {
 	a := New()
 	w := a.Window()
 	w.SetRoot(root)
+	// Disable auto-boundary so DrawTo uses direct Draw (not scene recording).
+	// First-frame tests verify layout correctness via trackingCanvas DrawText
+	// calls, which require direct drawing — not scene.Scene replay.
+	// Boundary/compositor tests are separate (TestFirstFrame_RootBoundary*).
+	if rb, ok := root.(interface{ SetRepaintBoundary(bool) }); ok {
+		rb.SetRepaintBoundary(false)
+	}
 	w.HandleResize(1024, 700)
 	w.Frame()
 
@@ -430,6 +438,9 @@ func TestFirstFrame_SecondFrameNoLayoutIfClean(t *testing.T) {
 	a := New()
 	w := a.Window()
 	w.SetRoot(root)
+	if rb, ok := root.(interface{ SetRepaintBoundary(bool) }); ok {
+		rb.SetRepaintBoundary(false)
+	}
 	w.HandleResize(1024, 700)
 
 	// First frame.
@@ -504,6 +515,7 @@ func TestFirstFrame_TabViewContentBoundsSet(t *testing.T) {
 	a := New()
 	w := a.Window()
 	w.SetRoot(root)
+	root.SetRepaintBoundary(false)
 	w.HandleResize(800, 600)
 	w.Frame()
 
@@ -548,6 +560,7 @@ func TestFirstFrame_SplitViewChildBoundsSet(t *testing.T) {
 	a := New()
 	w := a.Window()
 	w.SetRoot(root)
+	root.SetRepaintBoundary(false)
 	w.HandleResize(800, 600)
 	w.Frame()
 
@@ -571,5 +584,91 @@ func TestFirstFrame_SplitViewChildBoundsSet(t *testing.T) {
 	}
 	if !drawnSet["Right Panel"] {
 		t.Error("Right Panel not drawn on first frame")
+	}
+}
+
+// --- trackingCanvas.ReplayScene Limitation Tests ---
+//
+// trackingCanvas.ReplayScene is a no-op. When the root widget is a WidgetBase
+// RepaintBoundary (ADR-024), drawBoundaryWidget records ALL content into a
+// scene.Scene and replays via canvas.ReplayScene. On trackingCanvas, this
+// silently discards all content → tests see zero DrawText calls.
+//
+// These tests document the limitation and verify boundary-aware test patterns.
+
+// TestTrackingCanvas_ReplaySceneIsNoOp documents that trackingCanvas drops
+// all scene content. Tests that count DrawText calls must NOT use root
+// RepaintBoundary with trackingCanvas, or must use a scene-aware canvas.
+func TestTrackingCanvas_ReplaySceneIsNoOp(t *testing.T) {
+	canvas := &trackingCanvas{}
+	sc := scene.NewScene()
+
+	// Even a non-empty scene is silently discarded by trackingCanvas.
+	canvas.ReplayScene(sc)
+
+	if len(canvas.drawTextCalls) != 0 {
+		t.Error("trackingCanvas.ReplayScene should be a no-op (known limitation)")
+	}
+}
+
+// TestFirstFrame_RootBoundaryMakesTrackingCanvasBlind verifies that SetRoot
+// auto-enables RepaintBoundary on root (ADR-024 Phase 3), which causes
+// trackingCanvas to miss all DrawText calls (ReplayScene is no-op).
+// This documents WHY the old first_frame tests fail with root boundary.
+func TestFirstFrame_RootBoundaryMakesTrackingCanvasBlind(t *testing.T) {
+	uiApp := New()
+	w := uiApp.Window()
+
+	root := primitives.Box(
+		primitives.Text("Hello").FontSize(14),
+	).Padding(8)
+
+	w.SetRoot(root)
+
+	// Verify SetRoot auto-enabled boundary (ADR-024 Phase 3).
+	if !root.IsRepaintBoundary() {
+		t.Fatal("SetRoot should auto-enable RepaintBoundary on root")
+	}
+
+	canvas := &trackingCanvas{}
+	w.Frame()
+	w.DrawTo(canvas)
+
+	// trackingCanvas.ReplayScene is no-op → zero DrawText calls.
+	if len(canvas.drawTextCalls) != 0 {
+		t.Errorf("expected 0 DrawText calls with root boundary + trackingCanvas, got %d",
+			len(canvas.drawTextCalls))
+	}
+}
+
+// TestFirstFrame_DirectDrawWithoutBoundary verifies that drawing directly
+// (bypassing SetRoot auto-boundary) produces DrawText calls on trackingCanvas.
+func TestFirstFrame_DirectDrawWithoutBoundary(t *testing.T) {
+	uiApp := New()
+	w := uiApp.Window()
+
+	root := primitives.Box(
+		primitives.Text("Hello").FontSize(14),
+	).Padding(8)
+
+	w.SetRoot(root)
+
+	// Manually disable the auto-boundary for testing.
+	root.SetRepaintBoundary(false)
+
+	canvas := &trackingCanvas{}
+	w.Frame()
+	w.DrawTo(canvas)
+
+	hasText := false
+	for _, call := range canvas.drawTextCalls {
+		if strings.Contains(call.text, "Hello") {
+			hasText = true
+			break
+		}
+	}
+
+	if !hasText {
+		t.Error("expected 'Hello' drawn when root boundary disabled")
 	}
 }
