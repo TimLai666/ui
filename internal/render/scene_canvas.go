@@ -2,6 +2,7 @@ package render
 
 import (
 	"image"
+	stdcolor "image/color"
 	"image/draw"
 	"math"
 
@@ -37,6 +38,19 @@ type SceneCanvas struct {
 	transformStack []geometry.Point
 	// Current cumulative transform offset.
 	currentOffset geometry.Point
+
+	// screenOriginBase is the screen-space position of the RepaintBoundary
+	// that owns this SceneCanvas. Set before recording child drawing so
+	// StampScreenOrigin produces correct screen-space ScreenOrigin values.
+	screenOriginBase geometry.Point
+
+	// deviceScale is the display scale factor (DPI scaling). SVG icons are
+	// rasterized at ceil(logicalSize * deviceScale) physical pixels, then
+	// drawn with an inverse-scale affine transform so they appear at the
+	// correct logical size but with crisp, HiDPI-quality rendering.
+	// Follows the Qt6/Chromium/IntelliJ pattern (ADR-026).
+	// A value <= 0 is treated as 1.0.
+	deviceScale float32
 }
 
 // NewSceneCanvas creates a new SceneCanvas that records drawing commands
@@ -64,6 +78,13 @@ func (c *SceneCanvas) Close() {
 // Scene returns the underlying scene.Scene.
 func (c *SceneCanvas) Scene() *scene.Scene {
 	return c.sc
+}
+
+// IsBoundaryRecording returns true. SceneCanvas records into a boundary's
+// scene.Scene. DrawChild uses this to skip child boundaries — they have
+// their own PictureLayers in the compositor (Flutter paintChild pattern).
+func (c *SceneCanvas) IsBoundaryRecording() bool {
+	return true
 }
 
 // --- widget.Canvas interface ---
@@ -446,6 +467,29 @@ func (c *SceneCanvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
 
+// ScreenOriginBase returns the screen-space base offset for this SceneCanvas.
+// For RepaintBoundary recording, this is the boundary widget's screen position
+// so that StampScreenOrigin computes correct screen-space coordinates even
+// after PushTransform(-bounds.Min) shifts to local coordinates.
+func (c *SceneCanvas) ScreenOriginBase() geometry.Point { return c.screenOriginBase }
+
+// SetScreenOriginBase sets the screen-space base offset for this SceneCanvas.
+func (c *SceneCanvas) SetScreenOriginBase(p geometry.Point) { c.screenOriginBase = p }
+
+// DeviceScale returns the display scale factor used for SVG rasterization.
+// Returns 1.0 if no scale has been set.
+func (c *SceneCanvas) DeviceScale() float32 {
+	if c.deviceScale <= 0 {
+		return 1
+	}
+	return c.deviceScale
+}
+
+// SetDeviceScale sets the display scale factor for HiDPI-aware SVG icon
+// rasterization (ADR-026). Icons are rasterized at physical pixel size
+// (ceil(logical * scale)) and drawn with an inverse-scale transform.
+func (c *SceneCanvas) SetDeviceScale(scale float32) { c.deviceScale = scale }
+
 // ClipBounds returns the current clip rectangle.
 func (c *SceneCanvas) ClipBounds() geometry.Rect {
 	return c.currentClip
@@ -467,6 +511,24 @@ func (c *SceneCanvas) ReplayScene(s *scene.Scene) {
 }
 
 // --- Internal helpers ---
+
+// svgDrawTransform builds the affine transform for drawing a rasterized SVG
+// icon that was rendered at physical pixel size. When scale == 1, this is a
+// pure translation. When scale > 1, the image is drawn at 1/scale size so
+// the oversized raster maps back to the correct logical pixel area.
+//
+// The transform is: translate(tx, ty) * scale(1/s, 1/s).
+// Matrix form:
+//
+//	| 1/s   0   tx |
+//	|  0   1/s  ty |
+func svgDrawTransform(tx, ty, scale float32) scene.Affine {
+	if scale <= 1 {
+		return scene.TranslateAffine(tx, ty)
+	}
+	inv := 1.0 / scale
+	return scene.NewAffine(inv, 0, tx, 0, inv, ty)
+}
 
 // applyTransform applies the current transform offset to a rectangle
 // and snaps to pixel grid.
@@ -506,6 +568,15 @@ func imageToRGBA(img image.Image) *image.RGBA {
 }
 
 // FillSVGPath fills an SVG path within the given bounds using a temporary gg.Context.
+//
+// When deviceScale > 1, the icon is rasterized at physical pixel size
+// (ceil(logical * scale)) and drawn with an inverse-scale affine transform
+// so it appears at the correct logical size with crisp HiDPI rendering.
+// This follows the Qt6/Chromium/IntelliJ pattern (ADR-026).
+//
+// Results are cached in the global icon cache: the rasterized scene.Image is
+// keyed by (svgData pointer, width, height, color). Cache hits skip parsing
+// and rasterization entirely — only a map lookup + scene.DrawImage.
 func (c *SceneCanvas) FillSVGPath(svgData string, viewBox float32, bounds geometry.Rect, color widget.Color) {
 	if svgData == "" || viewBox <= 0 {
 		return
@@ -516,34 +587,56 @@ func (c *SceneCanvas) FillSVGPath(svgData string, viewBox float32, bounds geomet
 		return
 	}
 
-	w := int(math.Ceil(float64(bounds.Width())))
-	h := int(math.Ceil(float64(bounds.Height())))
-	if w <= 0 || h <= 0 {
+	dpiScale := c.DeviceScale()
+
+	// Physical pixel dimensions for rasterization.
+	physW := int(math.Ceil(float64(bounds.Width()) * float64(dpiScale)))
+	physH := int(math.Ceil(float64(bounds.Height()) * float64(dpiScale)))
+	if physW <= 0 || physH <= 0 {
 		return
 	}
 
+	// Icon cache lookup (Level 2: rasterized image).
+	// Key uses physical dimensions — different scales produce different entries.
+	key := iconImageKey{
+		svgPtr: svgStringPtr(svgData),
+		width:  physW,
+		height: physH,
+		color:  packColor(color),
+	}
+	if cached := globalIconCache.getImage(key); cached != nil {
+		c.sc.DrawImage(cached, svgDrawTransform(bounds.Min.X, bounds.Min.Y, dpiScale))
+		return
+	}
+
+	// Cache miss: parse + rasterize at physical resolution.
 	path, err := gg.ParseSVGPath(svgData)
 	if err != nil {
 		return
 	}
 
-	dc := gg.NewContext(w, h)
-	scale := float64(bounds.Width()) / float64(viewBox)
-	scaleY := float64(bounds.Height()) / float64(viewBox)
-	if scaleY < scale {
-		scale = scaleY
+	dc := gg.NewContext(physW, physH)
+	dc.SetRasterizerMode(gg.RasterizerAnalytic) // CPU-only: bypass GPU queueing
+	// Scale SVG viewBox to physical pixel dimensions.
+	svgScale := float64(physW) / float64(viewBox)
+	svgScaleY := float64(physH) / float64(viewBox)
+	if svgScaleY < svgScale {
+		svgScale = svgScaleY
 	}
-	dc.Scale(scale, scale)
+	dc.Scale(svgScale, svgScale)
 	dc.SetRGBA(float64(color.R), float64(color.G), float64(color.B), float64(color.A))
 	dc.SetFillRule(gg.FillRuleEvenOdd)
 	dc.FillPath(path)
 
 	img := dc.Image()
 	rgba := imageToRGBA(img)
-	scImg := scene.NewImage(w, h)
+	scImg := scene.NewImage(physW, physH)
 	scImg.Data = rgba.Pix
-	c.sc.DrawImage(scImg, scene.TranslateAffine(bounds.Min.X, bounds.Min.Y))
+	c.sc.DrawImage(scImg, svgDrawTransform(bounds.Min.X, bounds.Min.Y, dpiScale))
 	_ = dc.Close()
+
+	// Store in cache for next frame.
+	globalIconCache.putImage(key, scImg)
 }
 
 // toSceneLineCap converts widget.LineCap to scene.LineCap.
@@ -558,8 +651,81 @@ func toSceneLineCap(lc widget.LineCap) scene.LineCap {
 	}
 }
 
+// SetTextMode is a no-op on SceneCanvas. Scene text uses TagText which
+// handles mode selection at replay time via GPUSceneRenderer.
+func (c *SceneCanvas) SetTextMode(_ widget.TextMode) {}
+
+// TextMode always returns TextModeAuto on SceneCanvas.
+func (c *SceneCanvas) TextMode() widget.TextMode { return widget.TextModeAuto }
+
+// RenderSVG rasterizes full SVG XML to bitmap and encodes as scene image.
+//
+// When deviceScale > 1, the SVG is rasterized at physical pixel size
+// (ceil(logical * scale)) and drawn with an inverse-scale affine transform
+// so it appears at the correct logical size with crisp HiDPI rendering.
+// This follows the Qt6/Chromium/IntelliJ pattern (ADR-026).
+//
+// Uses the global icon cache for both parsing (Level 1: svg.Document by
+// data pointer) and rasterization (Level 2: scene.Image by pointer+size+color).
+// On cache hit, the entire method reduces to a map lookup + scene.DrawImage.
+func (c *SceneCanvas) RenderSVG(svgXML []byte, bounds geometry.Rect, color widget.Color) {
+	if len(svgXML) == 0 {
+		return
+	}
+	bounds = c.applyTransform(bounds)
+
+	dpiScale := c.DeviceScale()
+
+	// Physical pixel dimensions for rasterization.
+	physW := int(math.Ceil(float64(bounds.Width()) * float64(dpiScale)))
+	physH := int(math.Ceil(float64(bounds.Height()) * float64(dpiScale)))
+	if physW <= 0 || physH <= 0 {
+		return
+	}
+
+	// Icon cache lookup (Level 2: rasterized image).
+	// Key uses physical dimensions — different scales produce different entries.
+	key := iconImageKey{
+		svgPtr: svgSlicePtr(svgXML),
+		width:  physW,
+		height: physH,
+		color:  packColor(color),
+	}
+	if cached := globalIconCache.getImage(key); cached != nil {
+		c.sc.DrawImage(cached, svgDrawTransform(bounds.Min.X, bounds.Min.Y, dpiScale))
+		return
+	}
+
+	// Cache miss: parse SVG (Level 1 cache) + rasterize at physical resolution.
+	doc := globalIconCache.getDoc(svgXML)
+	if doc == nil {
+		return
+	}
+
+	dc := gg.NewContext(physW, physH)
+	dc.SetRasterizerMode(gg.RasterizerAnalytic) // CPU-only: bypass GPU queueing
+	r8, g8, b8, a8 := color.RGBA8()
+	doc.RenderToWithColor(dc, 0, 0, float64(physW), float64(physH),
+		stdcolor.NRGBA{R: r8, G: g8, B: b8, A: a8})
+
+	rgba := imageToRGBA(dc.Image())
+	scImg := scene.NewImage(physW, physH)
+	scImg.Data = rgba.Pix
+	c.sc.DrawImage(scImg, svgDrawTransform(bounds.Min.X, bounds.Min.Y, dpiScale))
+	_ = dc.Close()
+
+	// Store in cache for next frame.
+	globalIconCache.putImage(key, scImg)
+}
+
 // Verify SceneCanvas implements widget.Canvas.
 var _ widget.Canvas = (*SceneCanvas)(nil)
 
 // Verify SceneCanvas implements widget.ArcStroker.
 var _ widget.ArcStroker = (*SceneCanvas)(nil)
+
+// Verify SceneCanvas implements widget.SVGFiller.
+var _ widget.SVGFiller = (*SceneCanvas)(nil)
+
+// Verify SceneCanvas implements widget.SVGRenderer.
+var _ widget.SVGRenderer = (*SceneCanvas)(nil)

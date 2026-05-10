@@ -410,6 +410,10 @@ func (c *Canvas) TransformOffset() geometry.Point {
 	return c.currentOffset
 }
 
+// ScreenOriginBase returns the screen-space base offset for this canvas.
+// For the main window canvas this is always (0,0).
+func (c *Canvas) ScreenOriginBase() geometry.Point { return geometry.Point{} }
+
 // ClipDepth returns the current depth of the clip stack.
 func (c *Canvas) ClipDepth() int {
 	return len(c.clipStack)
@@ -654,6 +658,12 @@ func (c *Canvas) ReplayScene(s *scene.Scene) {
 	c.dc.Pop()
 }
 
+// SetDamageTracking enables or disables damage tracking on the underlying gg.Context.
+// Implements widget.DamageController for retained-mode optimization.
+func (c *Canvas) SetDamageTracking(enabled bool) {
+	c.dc.SetDamageTracking(enabled)
+}
+
 // RenderSVG renders full SVG XML within the given bounds with color override.
 // Uses gg/svg.Document.RenderToWithColor to draw directly into the gg.Context.
 func (c *Canvas) RenderSVG(svgXML []byte, bounds geometry.Rect, color widget.Color) {
@@ -675,6 +685,18 @@ func (c *Canvas) RenderSVG(svgXML []byte, bounds geometry.Rect, color widget.Col
 	svgColor := stdcolor.NRGBA{R: r8, G: g8, B: b8, A: a8}
 	doc.RenderToWithColor(c.dc, float64(bounds.Min.X), float64(bounds.Min.Y),
 		float64(bounds.Width()), float64(bounds.Height()), svgColor)
+}
+
+// SetTextMode sets the text rendering strategy on the underlying gg.Context.
+// Implements widget.TextModeController.
+func (c *Canvas) SetTextMode(mode widget.TextMode) {
+	c.dc.SetTextMode(gg.TextMode(mode))
+}
+
+// TextMode returns the current text rendering strategy.
+// Implements widget.TextModeController.
+func (c *Canvas) TextMode() widget.TextMode {
+	return widget.TextMode(c.dc.TextMode())
 }
 
 // toGGLineCap converts widget.LineCap to gg.LineCap.
