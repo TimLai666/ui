@@ -42,6 +42,13 @@ func Expanded(child widget.Widget) *ExpandedWidget {
 	e := &ExpandedWidget{child: child}
 	e.SetVisible(true)
 	e.SetEnabled(true)
+	// ADR-028: parent chain for upward dirty propagation.
+	if child != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := child.(parentSetter); ok {
+			ps.SetParent(e)
+		}
+	}
 	return e
 }
 

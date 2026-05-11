@@ -55,6 +55,17 @@ func New(tabs []Tab, opts ...Option) *Widget {
 	// Initialize tab states.
 	w.tabStates = make([]TabState, len(tabs))
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	for i := range w.cfg.tabs {
+		if w.cfg.tabs[i].Content != nil {
+			type parentSetter interface{ SetParent(widget.Widget) }
+			if ps, ok := w.cfg.tabs[i].Content.(parentSetter); ok {
+				ps.SetParent(w)
+			}
+		}
+	}
+
 	return w
 }
 

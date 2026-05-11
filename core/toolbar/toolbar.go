@@ -113,6 +113,18 @@ func New(opts ...Option) *Widget {
 	}
 
 	w.itemStates = make([]itemState, len(w.cfg.items))
+
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	for _, item := range w.cfg.items { //nolint:gocritic // Item is read-only here
+		if item.Kind == ItemCustom && item.Widget != nil {
+			type parentSetter interface{ SetParent(widget.Widget) }
+			if ps, ok := item.Widget.(parentSetter); ok {
+				ps.SetParent(w)
+			}
+		}
+	}
+
 	return w
 }
 

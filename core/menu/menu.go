@@ -133,11 +133,15 @@ func (m *menuPanel) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool {
 	switch e.Key {
 	case event.KeyDown:
 		m.moveHighlight(1)
-		ctx.Invalidate()
+		// ADR-028: visual only — highlight moved.
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyUp:
 		m.moveHighlight(-1)
-		ctx.Invalidate()
+		// ADR-028: visual only — highlight moved.
+		m.SetNeedsRedraw(true)
+		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyEnter, event.KeySpace:
 		return m.activateHighlighted(ctx)
@@ -169,7 +173,9 @@ func (m *menuPanel) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) bo
 		if index != m.highlightedIndex {
 			m.highlightedIndex = index
 			m.handleHoverSubmenu(ctx, index)
-			ctx.Invalidate()
+			// ADR-028: visual only — menu item hover changed.
+			m.SetNeedsRedraw(true)
+			ctx.InvalidateRect(m.Bounds())
 		}
 		return true
 	case event.MousePress:
@@ -309,7 +315,9 @@ func (m *menuPanel) closeAllSubmenus(ctx widget.Context) {
 		m.subMenuPanel = nil
 	}
 	m.subMenuIndex = -1
-	ctx.Invalidate()
+	// ADR-028: visual only — submenu closed, highlight update.
+	m.SetNeedsRedraw(true)
+	ctx.InvalidateRect(m.Bounds())
 }
 
 // closeSubmenuOrSelf closes submenu if open, otherwise signals parent to close.

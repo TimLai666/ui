@@ -54,6 +54,7 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 			if w.cfg.onClose != nil {
 				w.cfg.onClose(i)
 			}
+			// ADR-028: layout change — tab removal changes tab strip layout.
 			ctx.Invalidate()
 			return true
 		}
@@ -71,7 +72,9 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		}
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — focus requested but no tab selected.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -191,5 +194,6 @@ func (w *Widget) selectTab(ctx widget.Context, idx int) {
 	if w.cfg.onSelect != nil {
 		w.cfg.onSelect(idx)
 	}
+	// ADR-028: layout change — tab switch changes content panel.
 	ctx.Invalidate()
 }

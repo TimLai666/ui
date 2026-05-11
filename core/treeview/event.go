@@ -243,7 +243,8 @@ func handleWheelEvent(w *Widget, ctx widget.Context, e *event.WheelEvent) bool {
 	}
 
 	w.SetNeedsRedraw(true)
-	ctx.Invalidate()
+	// ADR-028: visual only — scroll offset changed.
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 

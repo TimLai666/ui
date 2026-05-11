@@ -88,6 +88,18 @@ func New(opts ...Option) *Widget {
 	// Create internal header title widget for dirty tracking.
 	w.headerTitle = newHeaderTextWidget()
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	type parentSetter interface{ SetParent(widget.Widget) }
+	if ps, ok := w.headerTitle.(parentSetter); ok {
+		ps.SetParent(w)
+	}
+	if w.cfg.content != nil {
+		if ps, ok := w.cfg.content.(parentSetter); ok {
+			ps.SetParent(w)
+		}
+	}
+
 	return w
 }
 
@@ -354,6 +366,7 @@ func (w *Widget) tickAnimation(ctx widget.Context) {
 	w.animCtrl.Tick(dt)
 
 	// Keep requesting redraws while animating.
+	// ADR-028: layout change — animation changes widget height each frame.
 	if w.animCtrl.HasActive() {
 		w.SetNeedsRedraw(true)
 		ctx.Invalidate()

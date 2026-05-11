@@ -51,6 +51,15 @@ func NewTooltip(opts ...Option) *Tooltip {
 		t.painter = t.cfg.painter
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	if t.cfg.trigger != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := t.cfg.trigger.(parentSetter); ok {
+			ps.SetParent(t)
+		}
+	}
+
 	return t
 }
 
@@ -124,8 +133,9 @@ func (t *Tooltip) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) bool
 	case event.MouseEnter:
 		t.hovered = true
 		t.hoverStart = ctx.Now()
-		// Request continuous frames for delay check.
-		ctx.Invalidate()
+		// ADR-028: visual only — request frame for delay check.
+		t.SetNeedsRedraw(true)
+		ctx.InvalidateRect(t.Bounds())
 		return false // Don't consume enter events.
 
 	case event.MouseLeave:
@@ -192,7 +202,8 @@ func (t *Tooltip) show(ctx widget.Context) {
 		t.cfg.onShow()
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay display handled by DrawOverlays.
+	t.SetNeedsRedraw(true)
 }
 
 // hide removes the tooltip overlay.
@@ -220,7 +231,8 @@ func (t *Tooltip) hide(ctx widget.Context) {
 		t.cfg.onHide()
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay removal handled by DrawOverlays.
+	t.SetNeedsRedraw(true)
 }
 
 // calculateTooltipSize estimates the tooltip size based on text content.

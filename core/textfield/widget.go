@@ -240,7 +240,9 @@ func (w *Widget) notifyChange(ctx widget.Context) {
 	if w.cfg.onChange != nil {
 		w.cfg.onChange(w.resolvedText())
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — text content changed within fixed-size field.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // validate runs all configured validation functions.

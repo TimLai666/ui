@@ -48,6 +48,15 @@ func NewPopover(opts ...Option) *Popover {
 		p.visible = true
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	if p.cfg.trigger != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := p.cfg.trigger.(parentSetter); ok {
+			ps.SetParent(p)
+		}
+	}
+
 	return p
 }
 
@@ -160,7 +169,8 @@ func (p *Popover) Show(ctx widget.Context) {
 		p.cfg.onShow()
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay display handled by DrawOverlays.
+	p.SetNeedsRedraw(true)
 }
 
 // Hide closes the popover content overlay.
@@ -193,7 +203,8 @@ func (p *Popover) hide(ctx widget.Context) {
 		p.cfg.onHide()
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay removal handled by DrawOverlays.
+	p.SetNeedsRedraw(true)
 }
 
 // Toggle opens the popover if closed, closes it if open.

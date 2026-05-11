@@ -69,6 +69,12 @@ func NewGroup(opts ...GroupOption) *Group {
 		}
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	for _, it := range g.items {
+		it.SetParent(g)
+	}
+
 	return g
 }
 

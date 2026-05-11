@@ -83,6 +83,14 @@ func Box(children ...widget.Widget) *BoxWidget {
 	}
 	b.SetVisible(true)
 	b.SetEnabled(true)
+	// Establish parent chain for upward dirty propagation (ADR-028).
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	for _, child := range children {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := child.(parentSetter); ok {
+			ps.SetParent(b)
+		}
+	}
 	return b
 }
 

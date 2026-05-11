@@ -64,7 +64,10 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	}
 
 	ctx.RequestFocus(w)
-	ctx.Invalidate()
+
+	// ADR-028: visual only — cursor placement and focus ring.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 
 	pos := positionFromMouse(w, e)
 	if e.Modifiers().IsShift() {
@@ -83,7 +86,9 @@ func handleMouseDrag(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 	}
 	pos := positionFromMouse(w, e)
 	w.sel.SetCursorKeepSelection(pos)
-	ctx.Invalidate()
+	// ADR-028: visual only — selection highlight change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -97,7 +102,9 @@ func handleDoubleClick(w *Widget, ctx widget.Context, e *event.MouseEvent) bool 
 	start, end := wordBoundsAt(runes, pos)
 	w.sel.anchor = start
 	w.sel.cursor = end
-	ctx.Invalidate()
+	// ADR-028: visual only — word selection highlight.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -165,7 +172,9 @@ func handleKeyEvent(w *Widget, ctx widget.Context, e *event.KeyEvent) bool {
 func handleSelectAll(w *Widget, ctx widget.Context) bool {
 	runes := w.textRunes()
 	w.sel.SelectAll(len(runes))
-	ctx.Invalidate()
+	// ADR-028: visual only — selection highlight change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -226,7 +235,9 @@ func handleArrowLeft(w *Widget, ctx widget.Context, shift, ctrl bool) bool {
 	} else {
 		w.sel.SetCursor(newPos)
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — cursor/selection position change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -250,7 +261,9 @@ func handleArrowRight(w *Widget, ctx widget.Context, shift, ctrl bool) bool {
 	} else {
 		w.sel.SetCursor(newPos)
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — cursor/selection position change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -261,7 +274,9 @@ func handleHome(w *Widget, ctx widget.Context, shift bool) bool {
 	} else {
 		w.sel.SetCursor(0)
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — cursor position change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -273,7 +288,9 @@ func handleEnd(w *Widget, ctx widget.Context, shift bool) bool {
 	} else {
 		w.sel.SetCursor(len(runes))
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — cursor position change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 

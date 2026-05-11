@@ -139,6 +139,15 @@ func NewRepaintBoundary(child widget.Widget, opts ...Option) *RepaintBoundary {
 		opt(rb)
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	if child != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := child.(parentSetter); ok {
+			ps.SetParent(rb)
+		}
+	}
+
 	return rb
 }
 

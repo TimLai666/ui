@@ -81,7 +81,9 @@ func (cm *ContextMenu) Show(ctx widget.Context, position geometry.Point) {
 		cm.Hide(ctx)
 	})
 
-	ctx.Invalidate()
+	// ADR-028: ContextMenu is not a widget — signal redraw via InvalidateRect
+	// so the overlay gets painted. No full layout recalc needed.
+	ctx.InvalidateRect(panel.Bounds())
 }
 
 // Hide closes the context menu.
@@ -100,7 +102,8 @@ func (cm *ContextMenu) Hide(ctx widget.Context) {
 	}
 
 	cm.open = false
-	ctx.Invalidate()
+	// ADR-028: not a widget — signal redraw via InvalidateRect.
+	ctx.InvalidateRect(geometry.Rect{})
 }
 
 // IsOpen returns true if the context menu is currently visible.

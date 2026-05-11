@@ -267,7 +267,9 @@ func (w *Widget) handleMove(ctx widget.Context, local geometry.Point) bool {
 	}
 
 	if changed {
-		ctx.Invalidate()
+		// ADR-028: visual only — button hover state changed.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }
@@ -281,7 +283,9 @@ func (w *Widget) handlePress(ctx widget.Context, local geometry.Point) bool {
 
 	states := w.statesForGroup(group)
 	states[idx].interaction = statePressed
-	ctx.Invalidate()
+	// ADR-028: visual only — pressed state.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -312,7 +316,9 @@ func (w *Widget) handleRelease(ctx widget.Context, local geometry.Point) bool {
 		}
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — release state change.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -332,7 +338,9 @@ func (w *Widget) clearAllHover(ctx widget.Context) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		// ADR-028: visual only — hover states cleared.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return changed
 }

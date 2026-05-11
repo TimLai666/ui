@@ -70,33 +70,40 @@ func TestGranularInvalidation_HoverLeave_NoFullInvalidate(t *testing.T) {
 	}
 }
 
-func TestGranularInvalidation_MousePress_KeepsFullInvalidation(t *testing.T) {
+func TestGranularInvalidation_MousePress_UsesGranular(t *testing.T) {
 	w := New()
 	w.SetBounds(geometry.NewRect(0, 0, 300, 48))
 	ctx := widget.NewContext()
 
-	// Mouse press places cursor and requests focus -- structural.
+	// ADR-028: Mouse press places cursor and requests focus — visual only
+	// (fixed-size widget, no layout change).
 	press := event.NewMouseEvent(event.MousePress, event.ButtonLeft, event.ButtonStateLeft,
 		geometry.Pt(150, 24), geometry.Pt(150, 24), event.ModNone)
 	handleEvent(w, ctx, press)
 
-	if !ctx.IsInvalidated() {
-		t.Error("MousePress MUST trigger full invalidation (focus + cursor placement)")
+	if ctx.IsInvalidated() {
+		t.Error("MousePress should use granular invalidation, not ctx.Invalidate()")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("MousePress should set needsRedraw")
 	}
 }
 
-func TestGranularInvalidation_TextInput_KeepsFullInvalidation(t *testing.T) {
+func TestGranularInvalidation_TextInput_UsesGranular(t *testing.T) {
 	w := New()
 	w.SetBounds(geometry.NewRect(0, 0, 300, 48))
 	w.SetFocused(true)
 	ctx := widget.NewContext()
 
-	// Type a character.
+	// ADR-028: Text input in fixed-size field — visual only.
 	keyEvt := event.NewKeyEvent(event.KeyPress, event.KeyA, 'a', event.ModNone)
 	handleEvent(w, ctx, keyEvt)
 
-	if !ctx.IsInvalidated() {
-		t.Error("text input MUST trigger full invalidation (content change needs layout)")
+	if ctx.IsInvalidated() {
+		t.Error("text input should use granular invalidation (fixed-size field)")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("text input should set needsRedraw")
 	}
 }
 

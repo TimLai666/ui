@@ -352,6 +352,10 @@ func New(opts ...Option) *Widget {
 
 	w.scroll = scrollview.New(w.virtual, svOpts...)
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	w.scroll.SetParent(w)
+
 	return w
 }
 
@@ -905,7 +909,9 @@ func (w *Widget) handleHeaderMouseEvent(ctx widget.Context, e *event.MouseEvent)
 	case event.MouseLeave:
 		if w.hoveredColHdr != noHoveredCol {
 			w.hoveredColHdr = noHoveredCol
-			ctx.Invalidate()
+			// ADR-028: visual only — header hover cleared.
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return false
 	default:
@@ -918,7 +924,9 @@ func (w *Widget) handleHeaderMouseMove(ctx widget.Context, e *event.MouseEvent, 
 	if e.Position.Y < bounds.Min.Y || e.Position.Y >= headerBottom {
 		if w.hoveredColHdr != noHoveredCol {
 			w.hoveredColHdr = noHoveredCol
-			ctx.Invalidate()
+			// ADR-028: visual only — header hover cleared.
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return false
 	}
@@ -926,7 +934,9 @@ func (w *Widget) handleHeaderMouseMove(ctx widget.Context, e *event.MouseEvent, 
 	colIdx := w.columnAtX(e.Position.X - bounds.Min.X)
 	if colIdx != w.hoveredColHdr {
 		w.hoveredColHdr = colIdx
-		ctx.Invalidate()
+		// ADR-028: visual only — header column hover changed.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 
 	// Show pointer cursor for sortable columns.
@@ -974,6 +984,7 @@ func (w *Widget) handleHeaderMousePress(ctx widget.Context, e *event.MouseEvent,
 	}
 
 	ctx.RequestFocus(w)
+	// ADR-028: layout change — sort reorders rows, may change content.
 	ctx.Invalidate()
 	return true
 }
@@ -1083,7 +1094,9 @@ func (w *Widget) setSelectedRow(ctx widget.Context, row int) {
 		w.cfg.onRowSelect(row)
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — row selection highlight moved.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // handleContentMouseEvent processes mouse events on the data area.
@@ -1100,7 +1113,9 @@ func handleContentMouseEvent(dt *Widget, ctx widget.Context, e *event.MouseEvent
 	case event.MouseLeave:
 		if dt.hoveredRow != noHoveredRow {
 			dt.hoveredRow = noHoveredRow
-			ctx.Invalidate()
+			// ADR-028: visual only — row hover cleared.
+			dt.SetNeedsRedraw(true)
+			ctx.InvalidateRect(dt.Bounds())
 		}
 		return false
 	default:
@@ -1117,7 +1132,9 @@ func handleContentMouseMove(dt *Widget, ctx widget.Context, e *event.MouseEvent)
 
 	if row != dt.hoveredRow {
 		dt.hoveredRow = row
-		ctx.Invalidate()
+		// ADR-028: visual only — row hover changed.
+		dt.SetNeedsRedraw(true)
+		ctx.InvalidateRect(dt.Bounds())
 	}
 	return false
 }
@@ -1170,7 +1187,9 @@ func toggleMultiSelect(dt *Widget, ctx widget.Context, row int) {
 	if dt.cfg.onRowSelect != nil {
 		dt.cfg.onRowSelect(row)
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — multi-selection highlight toggled.
+	dt.SetNeedsRedraw(true)
+	ctx.InvalidateRect(dt.Bounds())
 }
 
 // rowAtY returns the row index at the given y offset in content coordinates.

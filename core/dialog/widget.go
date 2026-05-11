@@ -89,7 +89,8 @@ func (w *Widget) Show(ctx widget.Context) {
 		w.doClose(ctx)
 	})
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay display is handled by DrawOverlays.
+	w.SetNeedsRedraw(true)
 }
 
 // Close removes the dialog from the overlay stack.
@@ -119,7 +120,8 @@ func (w *Widget) doClose(ctx widget.Context) {
 		w.cfg.onClose()
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — overlay removal handled by DrawOverlays.
+	w.SetNeedsRedraw(true)
 }
 
 // Layout calculates the dialog's preferred size. When shown as an overlay,
@@ -363,7 +365,9 @@ func (s *surfaceWidget) cycleFocus(ctx widget.Context, reverse bool) {
 			s.focusIndex = 0
 		}
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — focus highlight moved between buttons.
+	s.SetNeedsRedraw(true)
+	ctx.InvalidateRect(s.Bounds())
 }
 
 // handleMouseEvent processes mouse events.

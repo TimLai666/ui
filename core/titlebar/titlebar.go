@@ -132,6 +132,24 @@ func New(opts ...Option) *Widget {
 	w.leadingBounds = make([]geometry.Rect, len(w.cfg.leading))
 	w.centerBounds = make([]geometry.Rect, len(w.cfg.center))
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	type parentSetter interface{ SetParent(widget.Widget) }
+	for _, child := range w.cfg.leading {
+		if child != nil {
+			if ps, ok := child.(parentSetter); ok {
+				ps.SetParent(w)
+			}
+		}
+	}
+	for _, child := range w.cfg.center {
+		if child != nil {
+			if ps, ok := child.(parentSetter); ok {
+				ps.SetParent(w)
+			}
+		}
+	}
+
 	return w
 }
 

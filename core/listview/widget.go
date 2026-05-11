@@ -104,6 +104,10 @@ func New(opts ...Option) *Widget {
 
 	w.scroll = scrollview.New(w.virtual, svOpts...)
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	w.scroll.SetParent(w)
+
 	return w
 }
 

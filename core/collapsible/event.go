@@ -92,11 +92,13 @@ func handleMouseEvent(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 		}
 		if wasPressed && hdr.Contains(e.Position) {
 			w.Toggle()
-			// Invalidate AFTER Toggle so layout recalculates with new expanded state.
+			// ADR-028: layout change — Toggle changes height, needs full layout recalc.
 			ctx.Invalidate()
 			return true
 		}
-		ctx.Invalidate()
+		// ADR-028: visual only — state changed from pressed to hover/normal.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 		return false // Let content handle release
 
 	default:
@@ -128,9 +130,14 @@ func handleActivationKey(w *Widget, ctx widget.Context, e *event.KeyEvent) bool 
 	case event.KeyRelease:
 		wasPressed := w.istate == statePressed
 		w.istate = stateNormal
-		ctx.Invalidate()
 		if wasPressed {
 			w.Toggle()
+			// ADR-028: layout change — Toggle changes height.
+			ctx.Invalidate()
+		} else {
+			// ADR-028: visual only — state changed to normal.
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return true
 	default:

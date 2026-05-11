@@ -447,6 +447,10 @@ func New(opts ...Option) *Widget {
 
 	w.scroll = scrollview.New(w.virtual, svOpts...)
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	w.scroll.SetParent(w)
+
 	return w
 }
 
@@ -861,7 +865,9 @@ func (w *Widget) setSelectedIndex(ctx widget.Context, index int) {
 		w.cfg.onSelectionChange(index)
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — selection highlight moved.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // Default viewport dimensions used as fallback.
@@ -988,7 +994,9 @@ func handleContentMouseEvent(gv *Widget, ctx widget.Context, e *event.MouseEvent
 		if gv.hoveredIndex != noHoveredIndex {
 			gv.hoveredIndex = noHoveredIndex
 			gv.cache.invalidate()
-			ctx.Invalidate()
+			// ADR-028: visual only — cell hover cleared.
+			gv.SetNeedsRedraw(true)
+			ctx.InvalidateRect(gv.Bounds())
 		}
 		return false
 	default:
@@ -1007,7 +1015,9 @@ func handleContentMouseMove(gv *Widget, ctx widget.Context, e *event.MouseEvent)
 	if idx != gv.hoveredIndex {
 		gv.hoveredIndex = idx
 		gv.cache.invalidate()
-		ctx.Invalidate()
+		// ADR-028: visual only — cell hover changed.
+		gv.SetNeedsRedraw(true)
+		ctx.InvalidateRect(gv.Bounds())
 	}
 	return false // Don't consume move events.
 }

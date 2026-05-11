@@ -46,6 +46,9 @@ func (b *Binding) IsActive() bool {
 
 // Bind creates a [Binding] that invalidates ctx whenever sig changes.
 //
+// Deprecated: Bind triggers full-window layout+redraw via ctx.Invalidate().
+// Use [BindToScheduler] for granular per-widget invalidation (enterprise pattern).
+//
 // The type parameter T must match the signal's value type. The binding
 // subscribes to the signal using SubscribeForever; the caller must call
 // [Binding.Unbind] to release the subscription.

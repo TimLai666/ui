@@ -180,13 +180,17 @@ func (b *Bar) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) bool {
 			if b.openIndex >= 0 && index >= 0 && index != b.openIndex {
 				b.openMenu(ctx, index)
 			}
-			ctx.Invalidate()
+			// ADR-028: visual only — label hover changed.
+			b.SetNeedsRedraw(true)
+			ctx.InvalidateRect(b.Bounds())
 		}
 		return true
 
 	case event.MouseLeave:
 		b.hoveredIndex = -1
-		ctx.Invalidate()
+		// ADR-028: visual only — hover cleared.
+		b.SetNeedsRedraw(true)
+		ctx.InvalidateRect(b.Bounds())
 		return true
 
 	case event.MousePress:
@@ -271,7 +275,9 @@ func (b *Bar) moveFocus(ctx widget.Context, delta int) bool {
 	if b.openIndex >= 0 {
 		b.openMenu(ctx, current)
 	}
-	ctx.Invalidate()
+	// ADR-028: visual only — keyboard focus highlight moved.
+	b.SetNeedsRedraw(true)
+	ctx.InvalidateRect(b.Bounds())
 	return true
 }
 
@@ -318,7 +324,10 @@ func (b *Bar) openMenu(ctx widget.Context, index int) {
 		b.closeMenu(ctx)
 	})
 
-	ctx.Invalidate()
+	// ADR-028: visual only — bar label highlights open state.
+	// Overlay display handled by DrawOverlays.
+	b.SetNeedsRedraw(true)
+	ctx.InvalidateRect(b.Bounds())
 }
 
 // closeMenu closes the currently open menu.
@@ -337,7 +346,9 @@ func (b *Bar) closeMenu(ctx widget.Context) {
 	}
 
 	b.openIndex = -1
-	ctx.Invalidate()
+	// ADR-028: visual only — bar label clears open state.
+	b.SetNeedsRedraw(true)
+	ctx.InvalidateRect(b.Bounds())
 }
 
 // indexAtPosition returns the top-level menu label index at the given position.

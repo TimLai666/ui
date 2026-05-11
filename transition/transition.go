@@ -243,6 +243,7 @@ func (t *Transition) updateAnimation(ctx widget.Context) {
 		}
 	} else {
 		// Request another frame while animating.
+		// ADR-028: layout-dependent — animation tick may change widget size.
 		t.SetNeedsRedraw(true)
 		ctx.Invalidate()
 	}

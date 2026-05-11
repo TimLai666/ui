@@ -118,6 +118,15 @@ func NewHost(opts ...HostOption) *Host {
 		h.painter = h.cfg.painter
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	if h.cfg.centerContent != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := h.cfg.centerContent.(parentSetter); ok {
+			ps.SetParent(h)
+		}
+	}
+
 	return h
 }
 
@@ -136,6 +145,14 @@ func (h *Host) Dock(panel *Panel, zone Zone) {
 	h.undockFromAll(panel)
 
 	h.zones[zone].addPanel(panel)
+
+	// ADR-028: parent chain for upward dirty propagation.
+	if content := panel.Content(); content != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := content.(parentSetter); ok {
+			ps.SetParent(h)
+		}
+	}
 }
 
 // Undock removes a panel from its current zone.
@@ -144,7 +161,19 @@ func (h *Host) Undock(panel *Panel) bool {
 	if panel == nil {
 		return false
 	}
-	return h.undockFromAll(panel)
+	removed := h.undockFromAll(panel)
+
+	// ADR-028: clear parent on removal.
+	if removed {
+		if content := panel.Content(); content != nil {
+			type parentSetter interface{ SetParent(widget.Widget) }
+			if ps, ok := content.(parentSetter); ok {
+				ps.SetParent(nil)
+			}
+		}
+	}
+
+	return removed
 }
 
 // MovePanel moves a panel from its current zone to a new zone.
@@ -442,6 +471,7 @@ func (h *Host) handleTabPress(ctx widget.Context, me *event.MouseEvent) bool {
 			ts := &h.tabStates[z][i]
 			if ts.Bounds.Contains(me.Position) {
 				h.zones[z].activeIdx = i
+				// ADR-028: layout change — active panel switch changes zone content.
 				ctx.Invalidate()
 				return true
 			}
@@ -473,7 +503,9 @@ func (h *Host) handleTabMove(ctx widget.Context, me *event.MouseEvent) bool {
 	}
 
 	if changed {
-		ctx.Invalidate()
+		// ADR-028: visual only — tab hover state changed.
+		h.SetNeedsRedraw(true)
+		ctx.InvalidateRect(h.Bounds())
 	}
 	return false // Don't consume move events.
 }
@@ -490,7 +522,9 @@ func (h *Host) handleTabLeave(ctx widget.Context) bool {
 		}
 	}
 	if changed {
-		ctx.Invalidate()
+		// ADR-028: visual only — tab hover cleared.
+		h.SetNeedsRedraw(true)
+		ctx.InvalidateRect(h.Bounds())
 	}
 	return false
 }
@@ -509,6 +543,7 @@ func (h *Host) closePanel(ctx widget.Context, z Zone, idx int) {
 		h.cfg.onPanelClose(panel, z)
 	}
 
+	// ADR-028: layout change — panel removed, zone layout changes.
 	ctx.Invalidate()
 }
 

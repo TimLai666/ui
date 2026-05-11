@@ -439,7 +439,8 @@ func (w *Widget) setSelectedNodeID(ctx widget.Context, id string) {
 		}
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — selection highlight moved.
+	ctx.InvalidateRect(w.Bounds())
 }
 
 // toggleNode toggles the expanded state of the given node.
@@ -456,6 +457,7 @@ func (w *Widget) toggleNode(ctx widget.Context, node *TreeNode) {
 		w.cfg.onToggle(node, node.Expanded)
 	}
 
+	// ADR-028: layout change — expand/collapse changes row count and tree height.
 	ctx.Invalidate()
 }
 

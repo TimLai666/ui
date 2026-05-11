@@ -67,6 +67,15 @@ func ThemeScope(theme widget.ThemeProvider, children ...widget.Widget) *ThemeSco
 		ts.child = Box(children...)
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	if ts.child != nil {
+		type parentSetter interface{ SetParent(widget.Widget) }
+		if ps, ok := ts.child.(parentSetter); ok {
+			ps.SetParent(ts)
+		}
+	}
+
 	return ts
 }
 

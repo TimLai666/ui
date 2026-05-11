@@ -230,6 +230,20 @@ func New(opts ...Option) *Widget {
 		w.painter = w.cfg.painter
 	}
 
+	// ADR-028: parent chain for upward dirty propagation.
+	// Flutter: RenderObject.adoptChild sets parent on each child.
+	type parentSetter interface{ SetParent(widget.Widget) }
+	if w.cfg.first != nil {
+		if ps, ok := w.cfg.first.(parentSetter); ok {
+			ps.SetParent(w)
+		}
+	}
+	if w.cfg.second != nil {
+		if ps, ok := w.cfg.second.(parentSetter); ok {
+			ps.SetParent(w)
+		}
+	}
+
 	return w
 }
 
@@ -426,7 +440,9 @@ func (w *Widget) handleDividerEvent(ctx widget.Context, me *event.MouseEvent) bo
 		w.hovered = w.dividerRect().Contains(me.Position)
 		if w.hovered != wasHovered {
 			w.updateCursor(ctx)
-			ctx.Invalidate()
+			// ADR-028: visual only — divider hover state change.
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 		}
 		return false
 	default:
@@ -442,7 +458,9 @@ func (w *Widget) handleMouseMove(ctx widget.Context, me *event.MouseEvent) bool 
 			w.dragging = false
 			w.hovered = false
 			ctx.SetCursor(widget.CursorDefault)
-			ctx.Invalidate()
+			// ADR-028: visual only — clearing drag visual state.
+			w.SetNeedsRedraw(true)
+			ctx.InvalidateRect(w.Bounds())
 			return false
 		}
 
@@ -456,7 +474,9 @@ func (w *Widget) handleMouseMove(ctx widget.Context, me *event.MouseEvent) bool 
 	w.hovered = w.dividerRect().Contains(me.Position)
 	if w.hovered != wasHovered {
 		w.updateCursor(ctx)
-		ctx.Invalidate()
+		// ADR-028: visual only — divider hover state change.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 
 	return false
@@ -490,7 +510,9 @@ func (w *Widget) handleMousePress(ctx widget.Context, me *event.MouseEvent) bool
 	w.dragStart = me.Position
 	w.dragStartRatio = w.effectiveRatio()
 	w.updateCursor(ctx)
-	ctx.Invalidate()
+	// ADR-028: visual only — drag started, divider visual state.
+	w.SetNeedsRedraw(true)
+	ctx.InvalidateRect(w.Bounds())
 	return true
 }
 
@@ -505,7 +527,9 @@ func (w *Widget) handleMouseRelease(ctx widget.Context, me *event.MouseEvent) bo
 	if wasDragging {
 		w.hovered = w.dividerRect().Contains(me.Position)
 		w.updateCursor(ctx)
-		ctx.Invalidate()
+		// ADR-028: visual only — drag ended, divider visual state.
+		w.SetNeedsRedraw(true)
+		ctx.InvalidateRect(w.Bounds())
 	}
 	return wasDragging
 }
@@ -631,6 +655,7 @@ func (w *Widget) setRatio(ctx widget.Context, ratio float32) {
 	}
 
 	w.SetNeedsRedraw(true)
+	// ADR-028: layout change — ratio change resizes child panels.
 	ctx.Invalidate()
 }
 
