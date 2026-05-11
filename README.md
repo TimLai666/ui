@@ -162,7 +162,7 @@ func main() {
 | `core/dialog` | Modal dialog: backdrop overlay, action buttons, focus trapping, Alert/Confirm | 96.9% |
 | `core/dropdown` | Dropdown/select with overlay menu, keyboard navigation, signal bindings | 96%+ |
 | `overlay` | Overlay/popup stack, container, position helper | 95%+ |
-| `primitives` | Box, Text, Image, RepaintBoundary (pixel caching + tile-parallel scene.Scene) | 94.4% |
+| `primitives` | Box, Text, Image, RepaintBoundary (GPU texture caching via Layer Tree compositor) | 94.4% |
 | `theme/material3` | Material Design 3 — theme (HCT color science) + 21 component painters | 97%+ |
 | `focus` | Keyboard focus management with Tab/Shift+Tab navigation | 95.2% |
 | `internal/focus` | Internal focus manager implementation | 15.2% |
@@ -206,9 +206,9 @@ func main() {
 | `uitest` | Testing utilities: MockCanvas, MockContext, event factories, widget helpers, assertions | 93.1% |
 | `internal/dirty` | Dirty region tracking: Collector, Tracker, merge algorithm, partial repaints | 100% |
 
-| `compositor` | Layer Tree: OffsetLayer, PictureLayer, ClipRectLayer, OpacityLayer | 95%+ |
+| `compositor` | Layer Tree compositor: OffsetLayer, PictureLayer, ClipRectLayer, OpacityLayer — production render pipeline | 95%+ |
 
-**Total: ~170,000+ lines of code | 56+ packages | ~6,800+ tests | 97%+ average coverage**
+**Total: ~189,000+ lines of code | 56+ packages | ~7,200+ tests | 97%+ average coverage**
 
 ---
 
@@ -240,8 +240,8 @@ func main() {
 ├─────────────────────────────────────────────────────────────┤
 │  app/ + FocusManager │  focus/ │  overlay/ │  render/       │
 ├─────────────────────────────────────────────────────────────┤
-│  desktop/            (Layer Tree Compositor, ADR-007)       │
-│  compositor/         (OffsetLayer, PictureLayer, Compositor)│
+│  desktop/            (Layer Tree Compositor + Damage-Aware Blit)    │
+│  compositor/         (Production: OffsetLayer, PictureLayer, Opacity)│
 │  offscreen/          (headless widget → *image.RGBA)        │
 ├─────────────────────────────────────────────────────────────┤
 │  layout/           │  state/         │  a11y/               │
@@ -274,6 +274,19 @@ gg → wgpu → naga                   ← internal to gg
 ```
 
 **ui never imports gogpu, wgpu, or naga directly.**
+
+### Render Pipeline
+
+Enterprise-grade retained-mode rendering (ADR-007):
+
+1. **O(1) frame skip** -- flat dirty boundary set, no tree walks when idle (0% GPU)
+2. **Layer Tree composition** -- OffsetLayer, PictureLayer, OpacityLayer, ClipRectLayer
+3. **Per-boundary GPU textures** -- dirty boundaries re-render to MSAA offscreen texture, clean reuse cached
+4. **Damage-aware blit** -- LoadOpLoad + multi-rect scissor, only dirty pixels touch the GPU
+5. **Persistent tree** -- layer objects reused across frames (97.9% fewer allocations)
+
+Validated by enterprise research: Flutter, Chrome, Qt6, Android, Skia patterns.
+Software backend e2e tests prove scissor=48x48 at HAL level.
 
 ---
 

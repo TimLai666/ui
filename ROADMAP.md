@@ -1,6 +1,6 @@
 # gogpu/ui Roadmap
 
-> **Version:** 0.1.19 (Phase 3 RC + Layer Tree Compositor)
+> **Version:** 0.1.20 (Enterprise Render Pipeline + Layer Tree Compositor)
 > **Updated:** May 2026
 > **Go Version:** 1.25+
 
@@ -31,12 +31,12 @@
 | Metric | Value |
 |--------|-------|
 | Packages | 56+ |
-| Go Source Files | ~370 |
-| Test Files | ~160 |
-| Total LOC | ~170,000+ |
-| Test Functions | ~6,800+ |
+| Go Source Files | ~612 |
+| Test Files | ~200 |
+| Total LOC | ~189,000+ |
+| Test Functions | ~7,200+ |
 | Test Coverage | 97%+ |
-| Linter Issues | 0 (new code) |
+| Linter Issues | 0 |
 
 ---
 

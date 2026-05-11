@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] — 2026-05-11
+
+### Added
+
+- **Layer Tree compositor in production pipeline** (ADR-007 Phase D) — `compositor/` package now drives the render loop. `OffsetLayer`, `PictureLayer`, `ClipRectLayer`, `OpacityLayer` provide structured composition with animated transform/opacity support. Replaces direct widget tree walks with Layer Tree traversal.
+- **Persistent Layer Tree** (ADR-007 Phase D.5) — `UpdateLayerTree()` reuses layer objects across frames. 97.9% fewer allocations for 200 boundaries (613 → 13 allocs/op). Enterprise pattern validated by research (Flutter, Chrome, Qt6, Android, Skia all use persistent trees).
+- **O(1) flat dirty boundary list** (ADR-028 Phase C) — `HasDirtyBoundaries()` replaces `NeedsRedrawInTreeNonBoundary()` O(n) tree walk for frame skip. 45× faster (1.2ns vs 58ns). Flutter `_nodesNeedingPaint` pattern with `DirtyBoundaryRegistrar` interface.
+- **Multi-rect damage** (ADR-030) — per-draw dynamic scissor for multiple dirty rects. Zero pixel waste when dirty widgets are spatially distant. Ring buffer stores rect lists per frame. Threshold >16 rects merges to union (GDK/Sway pattern). Full stack: ui → gg `RenderDirectWithDamageRects` → wgpu `PresentWithDamage`.
+- **Overlay content in boundary pipeline** (ADR-029 Phase E) — dropdown menus, dialogs rendered via same Layer Tree + boundary texture pipeline as main widgets. `PaintOverlayBoundaries()`, `AppendOverlaysToLayerTree()`. Scrim for modal overlays only (Flutter ModalBarrier).
+- **Overlay hover blocking** — `overlayAwareHitTest()` checks overlay stack before root tree. Background widgets no longer receive hover when overlay is open.
+- **Software backend e2e tests** — pixel-exact damage verification through wgpu software backend. HAL-level `RenderPassStats` proves scissor=48×48 (not full window). 9 e2e tests run in CI without GPU.
+- **GPU pipeline diagnostic logging** — 7 log points behind `GOGPU_DEBUG_DAMAGE=1`: frame entry, root invalidate, per-boundary render/check, damage tracking, blit, blit path. `renderCount`/`blitCount` counters per frame.
+- **~120 new tests**, 6 benchmarks across desktop, app, compositor, state, overlay packages.
+- **3 enterprise research reports**: Layer Tree patterns (5 frameworks), multi-rect damage (4 APIs, 5 frameworks), ListView recycling (5 frameworks).
+
+### Changed
+
+- **Frame skip O(1)** — `NeedsRedrawInTreeNonBoundary` O(n) replaced with `HasDirtyBoundaries()` O(1) in desktop.draw frame skip check.
+- **os.Getenv cached** — `GOGPU_DEBUG_DAMAGE` and `GOGPU_DAMAGE_BLIT` cached via `sync.Once`. Zero syscalls in hot path.
+- **state.Bind deprecated** — use `BindToScheduler` for granular per-widget invalidation (enterprise pattern). `Bind` still works for backward compatibility.
+- **Phase 7 documentation** — all docblocks updated from "Phase 4-5" to "Phase 7". Stale/contradictory comments removed.
+- **Debug overlay + LoadOpLoad** — force full `canvas.Render` when `GOGPU_DEBUG_DAMAGE=1` to prevent green residue from LoadOpLoad preserved content.
+
+### Fixed
+
+- **Dropdown black background** — overlay boundary incorrectly marked as root (`IsRoot=true` from `Parent()==nil`) → `DrawGPUTextureBase` single-slot overwrote actual root. Fixed: `clearRootOnPictureLayers` after append.
+- **Child boundary dirty ≠ root needsRedraw** — `onBoundaryDirty` callback called `ctx.InvalidateRect` which set `window.needsRedraw=true` forcing root re-render every frame. Fixed: use `RegisterDirtyBoundary` only.
+- **Dropdown menu ctx.InvalidateRect leak** — menu.go called both `SetNeedsRedraw` AND `ctx.InvalidateRect` on RepaintBoundary. The `InvalidateRect` violated boundary isolation, forcing root re-render. Fixed: removed redundant `ctx.InvalidateRect` calls.
+- **Child boundaries invisible** — `renderFromTreeRecursive` had depth limit that prevented child boundaries (spinner, ListView items) from rendering. Fixed: removed depth limit.
+
+### Dependencies
+
+- gg v0.46.7 (multi-rect damage API, per-draw scissor)
+- gogpu v0.34.3
+- wgpu v0.27.3 (software backend Stats, slog.Debug instrumentation)
+
+### Known Issues
+
+- Dropdown menu items: cyan/green debug overlays do not show on overlay menu items (debug visualization only, menu renders and functions correctly)
+- GPU 10% for spinner 48×48 at 30fps (target <3%, scissor proven correct at HAL level)
+
 ## [0.1.19] — 2026-05-10
 
 ### Added

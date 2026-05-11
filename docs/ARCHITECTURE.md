@@ -15,7 +15,7 @@
 |            Layer 3b: Design Systems (styling)                |
 | theme/material3/  |  theme/fluent/    |  theme/cupertino/    |
 | 21 Painters       |  9 Painters       |  9 Painters          |
-| (M3 HCT colors)   |  (Acrylic/Mica)  |  (Apple HIG)         |
+| (M3 HCT colors)   |  (Acrylic/Mica)  |  (Apple HIG)          |
 +-------------------+-------------------+----------------------+
 |         Layer 3a: Generic Widgets (behavior)                 |
 | core/button/      |  core/checkbox/   |  primitives/         |
@@ -727,44 +727,82 @@ Clean subtrees are composited from cached pixel buffers instead of re-drawn.
 **RepaintBoundary** (ADR-024) is a WidgetBase property (`SetRepaintBoundary(true)`).
 Each boundary has its own `scene.Scene` for display list caching.
 
-**Level 4: Per-Boundary GPU Textures (ADR-007 Phase 7, v0.1.19)**
+**Level 4: Layer Tree Compositor + Damage-Aware Blit (ADR-007 Phase D+, v0.1.20)**
 
-Retained-mode compositor with per-boundary GPU textures and frame skip:
+Enterprise retained-mode compositor with Layer Tree, per-boundary GPU textures,
+persistent tree reuse, multi-rect damage, and overlay boundary pipeline:
 
 ```
 desktop.draw()
-  → Frame()                       signals, layout, animations
-  → [EARLY RETURN if nothing dirty → 0% GPU idle]
-  → PaintBoundaryLayers()          re-record ONLY dirty+visible boundaries
-  → CollectDirtyRegions()          dirty tracker (AFTER recording for fresh ScreenOrigin)
-  → renderBoundaryTextures()       scene → GPU offscreen texture per boundary
-  → compositeTextures()            blit all textures to surface (non-MSAA)
-  → DrawOverlays()                 dropdowns/dialogs on top
+  → Frame()                         signals, layout, animations
+  → [O(1) FRAME SKIP]              HasDirtyBoundaries || NeedsRedraw || NeedsAnimationFrame
+  → PaintBoundaryLayers()            re-record dirty+visible boundaries (Flutter flushPaint)
+  → PaintOverlayBoundaries()         re-record dirty overlay content boundaries
+  → UpdateLayerTree()                persistent Layer Tree (97.9% fewer allocs)
+  → AppendOverlaysToLayerTree()      overlay boundaries in Layer Tree (Z-order on top)
+  → CollectDirtyRegions()            dirty tracker for debug overlay
+  → renderBoundaryTexturesFromTree() Layer Tree walk → per-boundary GPU textures (MSAA)
+  → compositeTexturesFromTree()      Layer Tree walk → blit all textures to surface (non-MSAA)
+  → DrawOverlayScrim()               modal backdrop only (non-modal = no scrim)
+  → RenderDirectWithDamage()         LoadOpLoad + scissor to damage rect (damage-aware blit)
+    OR canvas.Render()               LoadOpClear + full blit (when root changed or debug active)
 ```
 
-**GPU performance:** 0% idle (frame skip), 8% with visible spinner (30fps).
+**GPU performance:** 0% idle (frame skip), 10% with visible spinner at 30fps
+(48x48 scissor proven at HAL level via software backend e2e tests).
 
-Each RepaintBoundary rendered into its own GPU offscreen texture. Child boundaries
-(depth > 0) are **skipped** during parent recording (DrawChild skip pattern --
-Flutter `paintChild`). Each child boundary gets its own GPU texture, composed
-separately during `compositeTextures`. When a child boundary is dirty, the root
-re-records cheaply (child content skipped), and the child re-renders its own
-texture independently.
+**Layer Tree compositor (ADR-007 Phase D):**
+The `compositor/` package provides a structured layer tree that drives the
+production render loop. `OffsetLayer` positions boundaries in window coordinates.
+`PictureLayer` owns a cached `scene.Scene`, `BoundaryCacheKey`, `ScreenOrigin`,
+and `ClipRect`. `ClipRectLayer` provides viewport clipping for ScrollView items.
+`OpacityLayer` supports alpha blending on cached textures (via gg
+`DrawGPUTextureWithOpacity`). Layer Tree traversal replaces direct widget tree
+walks for rendering and compositing.
 
-**Frame skip (0% GPU idle):**
-`desktop.draw` returns early when `!HasDirtyBoundariesOrNeedsRedraw()` and
-`!NeedsRedrawInTree()`. Previous frame's GPU output is valid. No GPU work.
+**Persistent Layer Tree (ADR-007 Phase D.5):**
+`UpdateLayerTree()` reuses layer objects across frames instead of rebuilding
+per-frame. For 200 boundaries: 613 allocs/op down to 13 allocs/op (97.9%
+reduction). Enterprise pattern validated by research across Flutter, Chrome,
+Qt6, Android, and Skia -- all use persistent trees.
+
+**O(1) frame skip (ADR-028 Phase C):**
+`HasDirtyBoundaries()` checks a flat dirty boundary set instead of the
+previous O(n) `NeedsRedrawInTreeNonBoundary` tree walk. 45x faster (1.2ns
+vs 58ns). Flutter `_nodesNeedingPaint` pattern with `DirtyBoundaryRegistrar`
+interface.
+
+**Multi-rect damage (ADR-030):**
+Per-draw dynamic scissor for multiple dirty rects. Zero pixel waste when dirty
+widgets are spatially distant. Ring buffer stores rect lists per frame. Threshold
+of >16 rects merges to union (GDK/Sway pattern). Full stack: ui ->
+gg `RenderDirectWithDamageRects` -> wgpu `PresentWithDamage`.
+
+**Overlay boundary pipeline (ADR-029 Phase E):**
+Dropdown menus, dialogs, and other overlays rendered via the same Layer Tree and
+boundary texture pipeline as main widgets. `PaintOverlayBoundaries()` re-records
+dirty overlay scenes. `AppendOverlaysToLayerTree()` adds overlays after the main
+tree for correct Z-order. Scrim applies only for modal overlays (Flutter
+ModalBarrier pattern). `overlayAwareHitTest()` blocks hover on background widgets
+when an overlay is open.
+
+Each RepaintBoundary is rendered into its own GPU offscreen texture. Child
+boundaries (depth > 0) are **skipped** during parent recording (DrawChild skip
+pattern -- Flutter `paintChild`). Each child boundary gets its own GPU texture,
+composed separately during Layer Tree traversal. When a child boundary is dirty,
+the root re-records cheaply (child content skipped), and the child re-renders
+its own texture independently.
 
 **Offscreen boundary culling:**
-`isBoundaryVisible()` checks CompositorClip intersection before recording.
-Offscreen animated widgets (spinner scrolled out of view) are not recorded →
-`ScheduleAnimationFrame` not called → animation pumper stops → 0% GPU.
+`isBoundaryLayerVisible()` checks CompositorClip intersection before recording.
+Offscreen animated widgets (spinner scrolled out of view) are not recorded ->
+`ScheduleAnimationFrame` not called -> animation pumper stops -> 0% GPU.
 
 **DrawChild skip pattern (Flutter paintChild):**
 During `recordBoundary`, the `BoundaryRecorder` checks each child: if the child
 has `IsRepaintBoundary() == true`, it is skipped (not drawn into the parent
 scene). Instead, the child's GPU texture is composed at the correct position
-during `compositeTextures` with GPU scissor clipping applied per viewport
+during Layer Tree compositing with GPU scissor clipping applied per viewport
 (ScrollView). This means parent re-recording is cheap -- it only draws
 non-boundary children (text, backgrounds, dividers) while boundary children
 retain their cached textures.
@@ -778,8 +816,14 @@ pumper from data tickers.
 
 **Compositor scissor clipping:**
 Items inside ScrollView viewports are clipped via GPU scissor rect during
-texture composition (`compositeTextures`), not during scene recording. Each
-boundary group in the blit pass has per-group scissor applied.
+Layer Tree compositing, not during scene recording. Each boundary group in
+the blit pass has per-group scissor applied.
+
+**Software backend e2e tests:**
+The wgpu software backend (`hal/software`) provides deterministic GPU pipeline
+for CI. HAL-level `RenderPassStats` proves scissor=48x48 (not full window).
+Pixel-exact readback verifies damage preservation across frames. 9 e2e tests
+run without GPU hardware.
 
 **ScreenOriginBase:**
 `recordBoundary` sets `ScreenOriginBase` from the boundary widget's screen
@@ -803,20 +847,27 @@ The dirty-tracking flow:
 Widget state change (hover, click, signal)
   → SetNeedsRedraw(true)
     → propagateDirtyUpward(parent) → root boundary → InvalidateScene()
-      → onBoundaryDirty callback → ctx.InvalidateRect() → RequestRedraw()
-        → desktop.draw: NeedsRedrawInTree check → force root re-record
-          → PaintBoundaryLayers: recordBoundary() with DrawChild skip
-            → SceneCanvas records non-boundary widgets into scene.Scene
-              → renderSingleBoundary: GPUSceneRenderer → FlushGPUWithView(texture)
-                → compositeTextures: DrawGPUTextureBase + scissor clip → surface
+      → RegisterDirtyBoundary() → flat dirty set (O(1))
+        → RequestRedraw()
+          → desktop.draw: HasDirtyBoundaries() O(1) check
+            → PaintBoundaryLayers: recordBoundary() with DrawChild skip
+            → PaintOverlayBoundaries: re-record overlay content
+            → UpdateLayerTree: persistent tree reuse
+            → AppendOverlaysToLayerTree: overlay Z-order
+            → renderBoundaryTexturesFromTree: Layer Tree → GPU textures
+            → compositeTexturesFromTree: Layer Tree → blit + scissor
+            → RenderDirectWithDamage: LoadOpLoad + damage rect → surface
 ```
 
 Key functions:
-- `PaintBoundaryLayersWithContext(root, _, ctx)` — re-records dirty boundaries
-- `renderBoundaryTextures(root, cc)` — renders scenes into GPU textures
-- `compositeTextures(root, cc, w, h)` — blits textures with scissor clip to surface
-- `paintBoundaryWithDepth(w, ctx, depth)` — depth-aware dirty propagation
-- `recordBoundary(w, ctx)` — records scene with DrawChild skip for child boundaries
+- `PaintBoundaryLayersWithContext(root, _, ctx)` -- re-records dirty boundaries
+- `PaintOverlayBoundaries(overlays, ctx)` -- re-records dirty overlay boundaries
+- `UpdateLayerTree(root, tree)` -- persistent Layer Tree update (reuses layers)
+- `AppendOverlaysToLayerTree(overlays, tree)` -- overlays after main tree
+- `renderBoundaryTexturesFromTree(tree, cc)` -- Layer Tree walk -> GPU textures
+- `compositeTexturesFromTree(tree, cc, w, h)` -- Layer Tree walk -> blit + scissor
+- `HasDirtyBoundaries()` -- O(1) flat dirty set check for frame skip
+- `recordBoundary(w, ctx)` -- records scene with DrawChild skip for child boundaries
 - `widget.ClearRedrawInTree(w)` -- clears all flags recursively
 - `widget.MarkRedrawInTree(w)` -- marks all widgets dirty (used by resize, theme change)
 - `widget.NeedsRedrawInTree(w)` -- checks if any descendant needs redraw
@@ -1362,13 +1413,13 @@ The `registry/` package provides a global registry for widget factories:
 
 | Dependency | Purpose | Version |
 |------------|---------|---------|
-| `github.com/gogpu/gg` | 2D graphics + scene.Scene tile-parallel rendering | v0.46.3 |
+| `github.com/gogpu/gg` | 2D graphics + scene.Scene tile-parallel rendering | v0.46.7 |
 | `github.com/gogpu/gpucontext` | Window/Platform provider interfaces | v0.18.0 |
-| `github.com/gogpu/gogpu` | Application framework, windowing (examples only) | v0.34.0 |
+| `github.com/gogpu/gogpu` | Application framework, windowing (examples only) | v0.34.3 |
 | `github.com/coregx/signals` | Reactive state management | v0.1.0 |
 | `golang.org/x/image` | Font rendering infrastructure | v0.39.0 |
 
-**Indirect:** gogpu/wgpu v0.27.1, gogpu/naga v0.17.13, gogpu/gputypes v0.5.0, go-text/typesetting v0.3.4, golang.org/x/text v0.35.0
+**Indirect:** gogpu/wgpu v0.27.3, gogpu/naga v0.17.13, gogpu/gputypes v0.5.0, go-text/typesetting v0.3.4, golang.org/x/text v0.36.0
 
 Go version: **1.25.0**
 
@@ -1446,4 +1497,4 @@ All types in `geometry/` are small structs passed by value. Operations return ne
 
 ---
 
-*This document reflects the actual codebase as of May 10, 2026 (v0.1.19 — per-boundary GPU textures, 0% GPU idle, offscreen culling, 34 integration tests).*
+*This document reflects the actual codebase as of May 11, 2026 (v0.1.20 — Layer Tree compositor, O(1) frame skip, persistent tree, multi-rect damage, overlay boundary pipeline, software backend e2e tests, ~120 new tests).*
