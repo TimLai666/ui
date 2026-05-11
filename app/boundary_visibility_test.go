@@ -292,6 +292,10 @@ func TestPaintBoundaryLayers_VisibleSchedulesAnimation(t *testing.T) {
 // --- Damage rect screen-space tests ---
 
 func TestOnBoundaryDirty_UsesScreenCoords(t *testing.T) {
+	// Verifies that onBoundaryDirty calls RegisterDirtyBoundary with the
+	// correct boundary cache key (NOT InvalidateRect). The boundary's screen
+	// coordinates are used by the compositor for damage tracking, but the
+	// callback itself only registers the key in the flat dirty set.
 	cleanup := setupSceneRecorder(t)
 	defer cleanup()
 
@@ -312,29 +316,38 @@ func TestOnBoundaryDirty_UsesScreenCoords(t *testing.T) {
 
 	root.kids = []widget.Widget{spinner}
 
-	var damageRect geometry.Rect
+	// Track RegisterDirtyBoundary calls instead of InvalidateRect.
+	var registeredKeys []uint64
 	ctx := widget.NewContext()
-	ctx.SetOnInvalidateRect(func(r geometry.Rect) {
-		damageRect = r
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+	ctx.SetOnRegisterDirtyBoundary(func(key uint64) {
+		registeredKeys = append(registeredKeys, key)
 	})
 
 	// First: record to wire onBoundaryDirty callback.
 	PaintBoundaryLayersWithContext(root, nil, ctx)
 
+	// Clear any keys registered during recording.
+	registeredKeys = nil
+
 	// Trigger onBoundaryDirty by invalidating the scene.
 	spinner.InvalidateScene()
 
-	// Damage rect should be in screen coordinates: Min=(200,300), Max=(248,348).
-	// NOT local bounds origin (200,300,248,348) which is Rect{(200,300),(248,348)}.
-	wantMin := geometry.Pt(200, 300)
-	wantMax := geometry.Pt(248, 348)
-	if damageRect.Min != wantMin || damageRect.Max != wantMax {
-		t.Errorf("damage rect = %v (Min=%v, Max=%v), want Min=%v Max=%v",
-			damageRect, damageRect.Min, damageRect.Max, wantMin, wantMax)
+	// The spinner's BoundaryCacheKey should be registered.
+	wantKey := spinner.BoundaryCacheKey()
+	if len(registeredKeys) == 0 {
+		t.Fatal("onBoundaryDirty should call RegisterDirtyBoundary")
+	}
+	if registeredKeys[0] != wantKey {
+		t.Errorf("registered key = %d, want spinner BoundaryCacheKey = %d",
+			registeredKeys[0], wantKey)
 	}
 }
 
 func TestOnBoundaryDirty_RootDamageAtOrigin(t *testing.T) {
+	// Verifies that root boundary dirty fires RegisterDirtyBoundary with
+	// the root's cache key. Previously tested InvalidateRect with damage
+	// rect at (0,0,800,600); now tests the key-based registration path.
 	cleanup := setupSceneRecorder(t)
 	defer cleanup()
 
@@ -345,21 +358,28 @@ func TestOnBoundaryDirty_RootDamageAtOrigin(t *testing.T) {
 	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
 	root.SetScreenOrigin(geometry.Pt(0, 0))
 
-	var damageRect geometry.Rect
+	var registeredKeys []uint64
 	ctx := widget.NewContext()
-	ctx.SetOnInvalidateRect(func(r geometry.Rect) {
-		damageRect = r
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+	ctx.SetOnRegisterDirtyBoundary(func(key uint64) {
+		registeredKeys = append(registeredKeys, key)
 	})
 
 	// Record to wire callback.
 	PaintBoundaryLayersWithContext(root, nil, ctx)
 
+	// Clear any keys registered during recording.
+	registeredKeys = nil
+
 	root.InvalidateScene()
 
-	wantMin := geometry.Pt(0, 0)
-	wantMax := geometry.Pt(800, 600)
-	if damageRect.Min != wantMin || damageRect.Max != wantMax {
-		t.Errorf("root damage rect = %v, want Min=%v Max=%v", damageRect, wantMin, wantMax)
+	wantKey := root.BoundaryCacheKey()
+	if len(registeredKeys) == 0 {
+		t.Fatal("root onBoundaryDirty should call RegisterDirtyBoundary")
+	}
+	if registeredKeys[0] != wantKey {
+		t.Errorf("registered key = %d, want root BoundaryCacheKey = %d",
+			registeredKeys[0], wantKey)
 	}
 }
 
@@ -640,8 +660,9 @@ func TestBoundaryRecordingOrder_RootBeforeChildren(t *testing.T) {
 }
 
 // TestScreenBoundsAccuracyAfterRecording verifies that ScreenBounds returns
-// correct screen-space coordinates for boundaries after PaintBoundaryLayers.
-// The onBoundaryDirty callback should use these coordinates for damage rects.
+// correct screen-space coordinates for boundaries after PaintBoundaryLayers,
+// and that onBoundaryDirty registers the correct cache key via
+// RegisterDirtyBoundary (not InvalidateRect).
 func TestScreenBoundsAccuracyAfterRecording(t *testing.T) {
 	cleanup := setupSceneRecorder(t)
 	defer cleanup()
@@ -662,10 +683,11 @@ func TestScreenBoundsAccuracyAfterRecording(t *testing.T) {
 
 	root.kids = []widget.Widget{spinner}
 
-	var damageRects []geometry.Rect
+	var registeredKeys []uint64
 	ctx := widget.NewContext()
-	ctx.SetOnInvalidateRect(func(r geometry.Rect) {
-		damageRects = append(damageRects, r)
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+	ctx.SetOnRegisterDirtyBoundary(func(key uint64) {
+		registeredKeys = append(registeredKeys, key)
 	})
 
 	// Record to wire onBoundaryDirty callbacks.
@@ -689,16 +711,20 @@ func TestScreenBoundsAccuracyAfterRecording(t *testing.T) {
 			rootScreen, wantRootMin, wantRootMax)
 	}
 
-	// Invalidate spinner and verify the damage rect matches ScreenBounds.
+	// Clear keys from initial recording.
+	registeredKeys = nil
+
+	// Invalidate spinner and verify RegisterDirtyBoundary is called
+	// with the correct cache key.
 	spinner.InvalidateScene()
 
-	if len(damageRects) == 0 {
-		t.Fatal("expected damage rect from onBoundaryDirty callback")
+	wantKey := spinner.BoundaryCacheKey()
+	if len(registeredKeys) == 0 {
+		t.Fatal("expected RegisterDirtyBoundary call from onBoundaryDirty callback")
 	}
-	dr := damageRects[0]
-	if dr.Min != wantSpinnerMin || dr.Max != wantSpinnerMax {
-		t.Errorf("damage rect = %v, want Min=%v Max=%v matching ScreenBounds",
-			dr, wantSpinnerMin, wantSpinnerMax)
+	if registeredKeys[0] != wantKey {
+		t.Errorf("registered key = %d, want spinner BoundaryCacheKey = %d",
+			registeredKeys[0], wantKey)
 	}
 }
 
@@ -901,5 +927,206 @@ func TestVisibilityMatrix(t *testing.T) {
 					tt.width, tt.height, viewport)
 			}
 		})
+	}
+}
+
+// --- Regression tests for onBoundaryDirty → RegisterDirtyBoundary fix ---
+
+// TestChildBoundaryDirty_DoesNotSetNeedsRedraw verifies that when a child
+// boundary goes dirty (spinner animation), window.needsRedraw stays false.
+// Root re-recording should NOT happen when only child boundaries change.
+// Regression: before this fix, ctx.InvalidateRect set needsRedraw=true
+// → root re-rendered every frame → full-window green damage overlay.
+func TestChildBoundaryDirty_DoesNotSetNeedsRedraw(t *testing.T) {
+	cleanup := setupSceneRecorder(t)
+	defer cleanup()
+
+	a := New()
+	w := a.Window()
+
+	// Build: root boundary → child spinner boundary.
+	root := &testContainer{}
+	root.SetVisible(true)
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+	root.SetScreenOrigin(geometry.Pt(0, 0))
+
+	spinner := &testLeaf{}
+	spinner.SetVisible(true)
+	spinner.SetRepaintBoundary(true)
+	spinner.SetBounds(geometry.NewRect(100, 100, 48, 48))
+	spinner.SetScreenOrigin(geometry.Pt(100, 100))
+	spinner.SetCompositorClip(geometry.NewRect(0, 0, 800, 600))
+	spinner.SetParent(root)
+
+	root.kids = []widget.Widget{spinner}
+	w.SetRoot(root)
+
+	// Record boundaries so onBoundaryDirty callback is wired.
+	PaintBoundaryLayersWithContext(root, nil, w.Context())
+
+	// Clear all dirty state to simulate a clean frame.
+	w.ClearDirtyBoundaries()
+	w.ClearAfterPaint()
+	root.ClearSceneDirty()
+	spinner.ClearSceneDirty()
+	widget.ClearRedrawInTree(root)
+
+	// Precondition: window.needsRedraw must be false.
+	if w.NeedsRedraw() {
+		t.Fatal("pre-condition: needsRedraw should be false after ClearAfterPaint")
+	}
+
+	// Action: spinner goes dirty (animation frame → InvalidateScene).
+	spinner.InvalidateScene()
+
+	// Assert: needsRedraw must STILL be false.
+	// The RegisterDirtyBoundary path only adds to dirtyBoundaries map
+	// and calls RequestRedraw to wake the loop — it does NOT set needsRedraw.
+	if w.NeedsRedraw() {
+		t.Error("child boundary dirty should NOT set window.needsRedraw — " +
+			"this would force root re-recording every frame (the green flicker bug)")
+	}
+
+	// Assert: dirtyBoundaries should have the spinner's key.
+	if !w.HasDirtyBoundaries() {
+		t.Error("spinner's BoundaryCacheKey should be in dirtyBoundaries")
+	}
+	if w.DirtyBoundaryCount() != 1 {
+		t.Errorf("expected 1 dirty boundary, got %d", w.DirtyBoundaryCount())
+	}
+}
+
+// TestChildBoundaryDirty_WakesRenderLoop verifies that RegisterDirtyBoundary
+// calls RequestRedraw to wake the render loop. Without this, dirty boundaries
+// would not be rendered until the next independent event.
+func TestChildBoundaryDirty_WakesRenderLoop(t *testing.T) {
+	cleanup := setupSceneRecorder(t)
+	defer cleanup()
+
+	// Use a lightweight context to track RegisterDirtyBoundary calls.
+	// The real Window wires SetOnRegisterDirtyBoundary to AddDirtyBoundary
+	// + RequestRedraw. Here we verify the callback fires.
+	root := &testContainer{}
+	root.SetVisible(true)
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+	root.SetScreenOrigin(geometry.Pt(0, 0))
+
+	spinner := &testLeaf{}
+	spinner.SetVisible(true)
+	spinner.SetRepaintBoundary(true)
+	spinner.SetBounds(geometry.NewRect(100, 100, 48, 48))
+	spinner.SetScreenOrigin(geometry.Pt(100, 100))
+	spinner.SetCompositorClip(geometry.NewRect(0, 0, 800, 600))
+	spinner.InvalidateScene()
+
+	root.kids = []widget.Widget{spinner}
+
+	registerCalled := false
+	ctx := widget.NewContext()
+	ctx.SetOnInvalidateRect(func(_ geometry.Rect) {})
+	ctx.SetOnRegisterDirtyBoundary(func(_ uint64) {
+		registerCalled = true
+	})
+
+	// Record to wire onBoundaryDirty callback.
+	PaintBoundaryLayersWithContext(root, nil, ctx)
+
+	// Reset after initial recording.
+	registerCalled = false
+
+	// Spinner goes dirty (animation tick).
+	spinner.InvalidateScene()
+
+	if !registerCalled {
+		t.Error("onBoundaryDirty should call RegisterDirtyBoundary to wake render loop — " +
+			"without this, dirty boundaries wait for the next unrelated event")
+	}
+}
+
+// TestRootNotRerecorded_WhenOnlyChildDirty verifies that when only a child
+// boundary (spinner) is dirty, the root boundary is NOT re-recorded. This is
+// the enterprise pattern: child boundary isolation prevents full-window work.
+// Regression: before the fix, onBoundaryDirty called InvalidateRect which
+// set needsRedraw=true → desktop.draw forced root re-recording every frame.
+func TestRootNotRerecorded_WhenOnlyChildDirty(t *testing.T) {
+	cleanup := setupSceneRecorder(t)
+	defer cleanup()
+
+	a := New()
+	w := a.Window()
+
+	root := &testContainer{}
+	root.SetVisible(true)
+	root.SetRepaintBoundary(true)
+	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
+	root.SetScreenOrigin(geometry.Pt(0, 0))
+
+	spinner := &animatedBoundary{}
+	spinner.SetVisible(true)
+	spinner.SetRepaintBoundary(true)
+	spinner.SetBounds(geometry.NewRect(100, 100, 48, 48))
+	spinner.SetScreenOrigin(geometry.Pt(100, 100))
+	spinner.SetCompositorClip(geometry.NewRect(0, 0, 800, 600))
+	spinner.SetParent(root)
+
+	root.kids = []widget.Widget{spinner}
+	w.SetRoot(root)
+
+	// Initial frame: record all boundaries.
+	spinner.InvalidateScene()
+	PaintBoundaryLayersWithContext(root, nil, w.Context())
+
+	// Clear all frame state.
+	w.ClearDirtyBoundaries()
+	w.ClearAfterPaint()
+	root.ClearSceneDirty()
+	spinner.ClearSceneDirty()
+	widget.ClearRedrawInTree(root)
+
+	// Precondition: everything clean.
+	if w.NeedsRedraw() {
+		t.Fatal("pre-condition: needsRedraw should be false")
+	}
+	if root.IsSceneDirty() {
+		t.Fatal("pre-condition: root scene should be clean")
+	}
+
+	// Action: only spinner goes dirty (animation frame).
+	spinner.InvalidateScene()
+
+	// The root scene should NOT become dirty — only the spinner is dirty.
+	if root.IsSceneDirty() {
+		t.Error("root scene should NOT be dirty when only child boundary is dirty — " +
+			"root re-recording wastes GPU work")
+	}
+
+	// window.needsRedraw should NOT be set — no full-frame work needed.
+	if w.NeedsRedraw() {
+		t.Error("window.needsRedraw should be false — only dirtyBoundaries needed for child re-record")
+	}
+
+	// dirtyBoundaries should contain the spinner's key.
+	if !w.HasDirtyBoundaries() {
+		t.Error("spinner should be registered in dirtyBoundaries")
+	}
+
+	// A second PaintBoundaryLayers pass should re-record the spinner
+	// but NOT the root (root is clean).
+	prevSpinnerDraw := spinner.drawCount
+	PaintBoundaryLayersWithContext(root, nil, w.Context())
+
+	// Root's scene was clean → it should NOT have been re-recorded.
+	// After PaintBoundaryLayers, a clean root stays clean (no Draw call).
+	// We verify via scene state: root scene should still be clean.
+	if root.IsSceneDirty() {
+		t.Error("root scene should remain clean after PaintBoundaryLayers — " +
+			"only dirty boundaries are re-recorded")
+	}
+
+	// Spinner was dirty → its Draw SHOULD be called.
+	if spinner.drawCount == prevSpinnerDraw {
+		t.Error("spinner Draw should be called (it was dirty)")
 	}
 }
