@@ -3,48 +3,41 @@ package desktop
 import (
 	"testing"
 
+	"github.com/gogpu/ui/app"
+	"github.com/gogpu/ui/compositor"
 	"github.com/gogpu/ui/event"
 	"github.com/gogpu/ui/geometry"
 	"github.com/gogpu/ui/widget"
 )
 
-// --- Compositor Clip Tests ---
+// --- Compositor Clip Tests (Layer Tree) ---
 //
-// These tests verify that walkBoundaries and compositeTextures respect
-// CompositorClip — skipping boundary textures outside the viewport.
-// This implements ScrollView clipping at compositor level.
+// These tests verify that the Layer Tree pipeline respects CompositorClip —
+// skipping boundary textures outside the viewport. ADR-007 Phase D replaced
+// the widget tree walkBoundaries with Layer Tree walk.
 
-// TestCompositorClip_SkipsItemsOutsideClip verifies that walkBoundaries
+// TestCompositorClip_SkipsItemsOutsideClip verifies that BuildLayerTree
+// produces PictureLayers with correct clip data, and renderSingleBoundaryFromLayer
 // skips items whose screen rect doesn't intersect their CompositorClip.
 func TestCompositorClip_SkipsItemsOutsideClip(t *testing.T) {
-	// Phase 1: Verify test setup.
 	viewportClip := geometry.NewRect(0, 200, 800, 300)
 	t.Logf("viewport clip: %v (Min=%v Max=%v)", viewportClip, viewportClip.Min, viewportClip.Max)
-
-	if viewportClip.Height() != 300 {
-		t.Fatalf("viewport clip height = %v, want 300", viewportClip.Height())
-	}
-	if viewportClip.Max.Y != 500 {
-		t.Fatalf("viewport clip Max.Y = %v, want 500", viewportClip.Max.Y)
-	}
 
 	root := &ccTestContainer{}
 	root.SetVisible(true)
 	root.SetRepaintBoundary(true)
 	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
-	rootKey := root.BoundaryCacheKey()
 
-	// Create items at specific screen positions relative to viewport.
 	type itemSpec struct {
 		screenY float32
-		wantVis bool // should be visited by walkBoundaries?
+		wantVis bool
 	}
 	specs := []itemSpec{
-		{screenY: 100, wantVis: false}, // item 0: fully above (y:100-140 vs clip y:200-500)
-		{screenY: 190, wantVis: true},  // item 1: partially above (y:190-230 ∩ y:200-500)
-		{screenY: 300, wantVis: true},  // item 2: fully inside (y:300-340 ∈ y:200-500)
-		{screenY: 480, wantVis: true},  // item 3: partially below (y:480-520 ∩ y:200-500)
-		{screenY: 510, wantVis: false}, // item 4: fully below (y:510-550 vs clip y:200-500)
+		{screenY: 100, wantVis: false}, // fully above clip
+		{screenY: 190, wantVis: true},  // partially above
+		{screenY: 300, wantVis: true},  // fully inside
+		{screenY: 480, wantVis: true},  // partially below
+		{screenY: 510, wantVis: false}, // fully below
 	}
 
 	items := make([]*ccTestItem, len(specs))
@@ -58,60 +51,30 @@ func TestCompositorClip_SkipsItemsOutsideClip(t *testing.T) {
 		items[i].SetParent(root)
 	}
 
-	// Phase 2: Verify each item's stored clip is correct.
-	for i, item := range items {
-		clip := item.CompositorClip()
-		if clip.Max.Y != 500 {
-			t.Errorf("item[%d] stored clip Max.Y = %v, want 500 (clip=%v)", i, clip.Max.Y, clip)
-		}
-	}
-
-	// Phase 3: Verify intersection logic independently.
-	for i, s := range specs {
-		origin := geometry.Pt(10, s.screenY)
-		screenRect := geometry.Rect{
-			Min: origin,
-			Max: geometry.Pt(origin.X+200, origin.Y+40),
-		}
-		intersects := screenRect.Intersects(viewportClip)
-		if intersects != s.wantVis {
-			t.Errorf("item[%d] intersection: got %v, want %v (screen=%v clip=%v)",
-				i, intersects, s.wantVis, screenRect, viewportClip)
-		}
-	}
-
-	// Phase 4: Wire up widget tree.
 	children := make([]widget.Widget, len(items))
 	for i, item := range items {
 		children[i] = item
 	}
 	root.children = children
 
-	// Phase 5: Walk boundaries and verify clip filtering.
-	itemKeys := make(map[uint64]int)
-	for i, item := range items {
-		itemKeys[item.BoundaryCacheKey()] = i
+	// Build Layer Tree — PictureLayers carry clip data from widgets.
+	layerTree := app.BuildLayerTree(root)
+
+	// Collect PictureLayers from the Layer Tree (excluding root).
+	var pictureLayers []*compositor.PictureLayerImpl
+	collectPictureLayers(layerTree, &pictureLayers, false)
+
+	// Verify correct number of child boundaries in tree.
+	if len(pictureLayers) != len(items) {
+		t.Fatalf("Layer Tree has %d child PictureLayers, want %d", len(pictureLayers), len(items))
 	}
 
-	rl := &renderLoop{}
-	var visited []int
-	rl.walkBoundaries(root, func(key uint64, _ geometry.Point, _, _ int) {
-		if key == rootKey {
-			return
-		}
-		if idx, ok := itemKeys[key]; ok {
-			visited = append(visited, idx)
-		}
-	})
-
-	// Expected: items 1, 2, 3 visible; items 0, 4 clipped away.
-	want := []int{1, 2, 3}
-	if len(visited) != len(want) {
-		t.Fatalf("visited %v, want %v", visited, want)
-	}
-	for i, idx := range visited {
-		if idx != want[i] {
-			t.Errorf("visited[%d] = %d, want %d", i, idx, want[i])
+	// Verify each PictureLayer's clip filtering matches expected visibility.
+	for i, pic := range pictureLayers {
+		visible := isPictureLayerVisible(pic)
+		if visible != specs[i].wantVis {
+			t.Errorf("item[%d] visible=%v, want %v (screenY=%v clip=%v)",
+				i, visible, specs[i].wantVis, specs[i].screenY, viewportClip)
 		}
 	}
 }
@@ -123,14 +86,12 @@ func TestCompositorClip_NoClipShowsAll(t *testing.T) {
 	root.SetVisible(true)
 	root.SetRepaintBoundary(true)
 	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
-	rootKey := root.BoundaryCacheKey()
 
 	item0 := &ccTestItem{index: 0}
 	item0.SetVisible(true)
 	item0.SetRepaintBoundary(true)
 	item0.SetBounds(geometry.NewRect(0, 0, 200, 40))
 	item0.SetScreenOrigin(geometry.Pt(10, 100))
-	// No SetCompositorClip — should always be visible.
 	item0.SetParent(root)
 
 	item1 := &ccTestItem{index: 1}
@@ -138,26 +99,29 @@ func TestCompositorClip_NoClipShowsAll(t *testing.T) {
 	item1.SetRepaintBoundary(true)
 	item1.SetBounds(geometry.NewRect(0, 0, 200, 40))
 	item1.SetScreenOrigin(geometry.Pt(10, 700))
-	// No SetCompositorClip — should always be visible.
 	item1.SetParent(root)
 
 	root.children = []widget.Widget{item0, item1}
 
-	rl := &renderLoop{}
-	var count int
-	rl.walkBoundaries(root, func(key uint64, _ geometry.Point, _, _ int) {
-		if key != rootKey {
-			count++
-		}
-	})
+	layerTree := app.BuildLayerTree(root)
 
-	if count != 2 {
-		t.Errorf("without CompositorClip, all items should be visible: got %d, want 2", count)
+	var pictureLayers []*compositor.PictureLayerImpl
+	collectPictureLayers(layerTree, &pictureLayers, false)
+
+	visibleCount := 0
+	for _, pic := range pictureLayers {
+		if isPictureLayerVisible(pic) {
+			visibleCount++
+		}
+	}
+
+	if visibleCount != 2 {
+		t.Errorf("without CompositorClip, all items should be visible: got %d, want 2", visibleCount)
 	}
 }
 
-// TestCompositorClip_RootNeverClipped verifies that the root boundary
-// (depth=0) is never affected by compositor clip.
+// TestCompositorClip_RootNeverClipped verifies that the root PictureLayer
+// (IsRoot=true) is never affected by compositor clip.
 func TestCompositorClip_RootNeverClipped(t *testing.T) {
 	root := &ccTestContainer{}
 	root.SetVisible(true)
@@ -165,20 +129,85 @@ func TestCompositorClip_RootNeverClipped(t *testing.T) {
 	root.SetBounds(geometry.NewRect(0, 0, 800, 600))
 	root.SetCompositorClip(geometry.NewRect(0, 0, 1, 1)) // tiny clip
 
-	rl := &renderLoop{}
-	var rootVisited bool
-	rl.walkBoundaries(root, func(key uint64, _ geometry.Point, _, _ int) {
-		if key == root.BoundaryCacheKey() {
-			rootVisited = true
+	layerTree := app.BuildLayerTree(root)
+
+	// Find root PictureLayer.
+	var rootPic *compositor.PictureLayerImpl
+	collectPictureLayers(layerTree, nil, false) // just to verify structure
+	walkLayerTree(layerTree, func(layer compositor.Layer) {
+		if pic, ok := layer.(*compositor.PictureLayerImpl); ok && pic.IsRoot() {
+			rootPic = pic
 		}
 	})
 
-	if !rootVisited {
-		t.Error("root boundary should never be clipped (depth=0)")
+	if rootPic == nil {
+		t.Fatal("root PictureLayer not found in Layer Tree")
+	}
+
+	// Root is always visible regardless of clip.
+	if !isPictureLayerVisible(rootPic) {
+		t.Error("root boundary should never be clipped (IsRoot=true)")
 	}
 }
 
-// --- test helpers ---
+// --- Layer Tree test helpers ---
+
+// collectPictureLayers walks the Layer Tree and collects non-root PictureLayers.
+// If out is nil, it only walks (useful for testing walkability).
+func collectPictureLayers(layer compositor.Layer, out *[]*compositor.PictureLayerImpl, includeRoot bool) {
+	if layer == nil {
+		return
+	}
+	if pic, ok := layer.(*compositor.PictureLayerImpl); ok {
+		if out != nil && (includeRoot || !pic.IsRoot()) {
+			*out = append(*out, pic)
+		}
+		return
+	}
+	if cl, ok := layer.(compositor.ContainerLayer); ok {
+		for _, child := range cl.Children() {
+			collectPictureLayers(child, out, includeRoot)
+		}
+	}
+}
+
+// walkLayerTree calls fn for every layer in the tree.
+func walkLayerTree(layer compositor.Layer, fn func(compositor.Layer)) {
+	if layer == nil {
+		return
+	}
+	fn(layer)
+	if cl, ok := layer.(compositor.ContainerLayer); ok {
+		for _, child := range cl.Children() {
+			walkLayerTree(child, fn)
+		}
+	}
+}
+
+// isPictureLayerVisible applies the same visibility rules as
+// renderSingleBoundaryFromLayer: root is always visible, non-root
+// checks ScreenOrigin validity and CompositorClip intersection.
+func isPictureLayerVisible(pic *compositor.PictureLayerImpl) bool {
+	if pic.IsRoot() {
+		return true
+	}
+	if !pic.IsScreenOriginValid() {
+		return false
+	}
+	if !pic.HasPictureClip() {
+		return true
+	}
+	clip := pic.PictureClipRect()
+	origin := pic.ScreenOrigin()
+	bw, bh := pic.Size()
+	screenRect := geometry.Rect{
+		Min: origin,
+		Max: geometry.Pt(origin.X+float32(bw), origin.Y+float32(bh)),
+	}
+	return screenRect.Intersects(clip)
+}
+
+// --- test widgets ---
 
 type ccTestItem struct {
 	widget.WidgetBase

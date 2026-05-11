@@ -22,7 +22,6 @@ var collectorDebug bool
 // each dirty widget.
 type Collector struct {
 	tracker *Tracker
-	debug   bool //nolint:unused // retained for GOGPU_DEBUG_COLLECTOR=1 (enterprise logging)
 }
 
 // NewCollector creates a new Collector that writes dirty regions to the

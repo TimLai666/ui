@@ -743,9 +743,12 @@ func TestSetNeedsRedraw_UpwardPropagation(t *testing.T) {
 		t.Errorf("expected boundary MarkBoundaryDirty called once, got %d", boundary.dirtyCount)
 	}
 
-	// Intermediate parent should also be marked dirty locally.
-	if !parent.NeedsRedraw() {
-		t.Error("intermediate parent should be marked dirty during upward propagation")
+	// Flutter pattern: intermediate parent should NOT be marked dirty.
+	// Only the boundary receives the dirty notification. Marking
+	// intermediates causes CollectDirtyRegions to report full parent
+	// chain as dirty → full screen damage overlay (ADR-028).
+	if parent.NeedsRedraw() {
+		t.Error("intermediate parent should NOT be dirty — only boundary gets marked (Flutter markNeedsPaint)")
 	}
 }
 
@@ -841,12 +844,13 @@ func TestSetNeedsRedraw_DeepTree(t *testing.T) {
 		t.Errorf("boundary should receive dirty notification, got %d", boundary.dirtyCount)
 	}
 
-	// Mid widgets between leaf and boundary should be dirty.
-	if !mid1.NeedsRedraw() {
-		t.Error("mid1 should be dirty")
+	// Flutter pattern: mid widgets between leaf and boundary should NOT
+	// be dirty. Only boundary gets marked (ADR-028).
+	if mid1.NeedsRedraw() {
+		t.Error("mid1 should NOT be dirty — only boundary gets marked (Flutter markNeedsPaint)")
 	}
-	if !mid2.NeedsRedraw() {
-		t.Error("mid2 should be dirty")
+	if mid2.NeedsRedraw() {
+		t.Error("mid2 should NOT be dirty — only boundary gets marked (Flutter markNeedsPaint)")
 	}
 
 	// Root (above boundary) should NOT be dirty — propagation stops at boundary.
@@ -856,7 +860,9 @@ func TestSetNeedsRedraw_DeepTree(t *testing.T) {
 }
 
 // TestSetNeedsRedraw_NoBoundary verifies propagation when there is no
-// RepaintBoundary in the parent chain. All ancestors should be marked dirty.
+// RepaintBoundary in the parent chain. Without a boundary, no ancestor
+// gets marked dirty — the propagation walks to root and finds no boundary.
+// The widget itself remains dirty (SetNeedsRedraw sets its own flag).
 func TestSetNeedsRedraw_NoBoundary(t *testing.T) {
 	root := newMockWidget()
 	child := newMockWidget()
@@ -864,7 +870,12 @@ func TestSetNeedsRedraw_NoBoundary(t *testing.T) {
 
 	child.SetNeedsRedraw(true)
 
-	if !root.NeedsRedraw() {
-		t.Error("root should be dirty when no RepaintBoundary exists")
+	// Flutter pattern: without boundary, intermediates not marked.
+	// Root widget detects dirty descendants via NeedsRedrawInTreeNonBoundary.
+	if root.NeedsRedraw() {
+		t.Error("root should NOT be dirty — no boundary found, intermediates not marked (Flutter pattern)")
+	}
+	if !child.NeedsRedraw() {
+		t.Error("child itself should remain dirty")
 	}
 }

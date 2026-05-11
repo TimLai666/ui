@@ -170,3 +170,74 @@ func TestLayerTree_ThreeLevels(t *testing.T) {
 		t.Error("second child should be spinner layer")
 	}
 }
+
+// --- Phase D: PictureLayerImpl extended fields ---
+
+func TestPictureLayer_BoundaryCacheKey(t *testing.T) {
+	l := NewPictureLayer()
+	l.SetBoundaryCacheKey(42)
+	if l.BoundaryCacheKey() != 42 {
+		t.Errorf("BoundaryCacheKey = %d, want 42", l.BoundaryCacheKey())
+	}
+}
+
+func TestPictureLayer_IsRoot(t *testing.T) {
+	l := NewPictureLayer()
+	if l.IsRoot() {
+		t.Error("new PictureLayer should not be root")
+	}
+	l.SetRoot(true)
+	if !l.IsRoot() {
+		t.Error("PictureLayer should be root after SetRoot(true)")
+	}
+}
+
+func TestPictureLayer_Size(t *testing.T) {
+	l := NewPictureLayer()
+	l.SetSize(800, 600)
+	w, h := l.Size()
+	if w != 800 || h != 600 {
+		t.Errorf("Size = (%d, %d), want (800, 600)", w, h)
+	}
+}
+
+func TestPictureLayer_ScreenOrigin(t *testing.T) {
+	l := NewPictureLayer()
+	if l.IsScreenOriginValid() {
+		t.Error("new PictureLayer should have invalid ScreenOrigin")
+	}
+	l.SetScreenOrigin(geometry.Pt(100, 200))
+	origin := l.ScreenOrigin()
+	if origin.X != 100 || origin.Y != 200 {
+		t.Errorf("ScreenOrigin = %v, want (100, 200)", origin)
+	}
+	if !l.IsScreenOriginValid() {
+		t.Error("ScreenOrigin should be valid after SetScreenOrigin")
+	}
+}
+
+func TestPictureLayer_PictureClipRect(t *testing.T) {
+	l := NewPictureLayer()
+	if l.HasPictureClip() {
+		t.Error("new PictureLayer should not have clip")
+	}
+	clip := geometry.NewRect(10, 20, 200, 300)
+	l.SetPictureClipRect(clip)
+	if !l.HasPictureClip() {
+		t.Error("PictureLayer should have clip after SetPictureClipRect")
+	}
+	if l.PictureClipRect() != clip {
+		t.Errorf("PictureClipRect = %v, want %v", l.PictureClipRect(), clip)
+	}
+}
+
+func TestPictureLayer_SceneVersion(t *testing.T) {
+	l := NewPictureLayer()
+	if l.SceneVersion() != 0 {
+		t.Error("new PictureLayer should have SceneVersion 0")
+	}
+	l.SetSceneVersion(5)
+	if l.SceneVersion() != 5 {
+		t.Errorf("SceneVersion = %d, want 5", l.SceneVersion())
+	}
+}

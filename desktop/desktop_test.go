@@ -26,7 +26,7 @@ func TestRunNilArgs(t *testing.T) {
 }
 
 // TestRunForcesHostManaged verifies that Run sets HostManaged render mode
-// for scene composition (ADR-007 Phase 5). HostManaged always draws the
+// for scene composition (ADR-007 Phase 7). HostManaged always draws the
 // full tree — RepaintBoundary cache handles efficiency.
 func TestRunForcesHostManaged(t *testing.T) {
 	uiApp := app.New()

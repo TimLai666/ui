@@ -19,19 +19,27 @@ type boundaryInfo interface {
 	SetSceneCacheSize(int, int)
 	Bounds() geometry.Rect
 	ScreenOrigin() geometry.Point
+	BoundaryCacheKey() uint64
+	SceneCacheVersion() uint64
+	Parent() widget.Widget
+}
+
+// layerIndex maps BoundaryCacheKey to the PictureLayerImpl + its parent
+// OffsetLayerImpl from a previous frame. Used by UpdateLayerTree to reuse
+// layer objects across frames (zero allocation for unchanged boundaries).
+type layerIndex struct {
+	pic    *compositor.PictureLayerImpl
+	offset *compositor.OffsetLayerImpl
 }
 
 // BuildLayerTree walks the widget tree and constructs a compositor layer tree.
 // Each RepaintBoundary widget produces a PictureLayer inside an OffsetLayer.
 // Non-boundary widgets are skipped (they're drawn inside their parent boundary).
 //
-// NOT IN PRODUCTION PIPELINE: the production render loop (desktop.draw)
-// uses PaintBoundaryLayers + renderBoundaryTextures + compositeTextures
-// instead. BuildLayerTree is retained for future use with the compositor
-// package (animated transforms, opacity layers).
-//
-// See: ADR-007 Phase 5 (bypassed in favor of Phase 7 per-boundary GPU textures)
-// Task: TASK-UI-OPT-005-compositor-integration (backlog)
+// ADR-007 Phase D: Layer Tree provides STRUCTURE (which boundaries exist,
+// their offsets, clip rects, opacity) for the texture rendering/blitting
+// pipeline. PictureLayerImpl stores BoundaryCacheKey, IsRoot, and Size to
+// link back to the per-boundary GPU texture cache in renderLoop.
 //
 // Flutter equivalent: Layer tree is built during paint via paintChild.
 func BuildLayerTree(root widget.Widget) *compositor.OffsetLayerImpl {
@@ -42,6 +50,165 @@ func BuildLayerTree(root widget.Widget) *compositor.OffsetLayerImpl {
 	rootLayer := compositor.NewOffsetLayer(geometry.Point{})
 	buildLayerRecursive(root, rootLayer, 0, 0)
 	return rootLayer
+}
+
+// UpdateLayerTree builds or updates a persistent layer tree. On the first call
+// (existing == nil), it builds from scratch (same as BuildLayerTree). On
+// subsequent calls, it reuses PictureLayerImpl and OffsetLayerImpl objects
+// for boundaries that still exist (matched by BoundaryCacheKey), updating
+// their fields from the current widget state. New boundaries get fresh layers;
+// removed boundaries are dropped.
+//
+// Flutter equivalent: Layer.addRetained + ContainerLayer.updateSubtreeNeedsAddToScene.
+// The persistent tree eliminates per-frame layer allocations for stable UIs.
+//
+// Returns the root OffsetLayerImpl (may be the same pointer as existing or new).
+func UpdateLayerTree(root widget.Widget, existing *compositor.OffsetLayerImpl) *compositor.OffsetLayerImpl {
+	if existing == nil {
+		return BuildLayerTree(root)
+	}
+	if root == nil {
+		return compositor.NewOffsetLayer(geometry.Point{})
+	}
+
+	// Collect existing layers indexed by BoundaryCacheKey for O(1) lookup.
+	index := collectLayerIndex(existing)
+
+	// Build new tree structure, reusing existing layer objects where possible.
+	newRoot := compositor.NewOffsetLayer(geometry.Point{})
+	updateLayerRecursive(root, newRoot, index, 0, 0)
+
+	return newRoot
+}
+
+// collectLayerIndex walks an existing layer tree and builds a map from
+// BoundaryCacheKey to the PictureLayerImpl + parent OffsetLayerImpl pair.
+func collectLayerIndex(root compositor.Layer) map[uint64]layerIndex {
+	idx := make(map[uint64]layerIndex)
+	collectLayerIndexRecursive(root, idx)
+	return idx
+}
+
+func collectLayerIndexRecursive(layer compositor.Layer, idx map[uint64]layerIndex) {
+	if layer == nil {
+		return
+	}
+
+	// OffsetLayer with a PictureLayer child = boundary pair.
+	offset, isOffset := layer.(*compositor.OffsetLayerImpl)
+	if isOffset {
+		for _, ch := range offset.Children() {
+			if pic, ok := ch.(*compositor.PictureLayerImpl); ok {
+				key := pic.BoundaryCacheKey()
+				if key != 0 {
+					idx[key] = layerIndex{pic: pic, offset: offset}
+				}
+			}
+		}
+	}
+
+	// Recurse into container children.
+	if cl, ok := layer.(compositor.ContainerLayer); ok {
+		for _, ch := range cl.Children() {
+			collectLayerIndexRecursive(ch, idx)
+		}
+	}
+}
+
+// updateLayerRecursive mirrors buildLayerRecursive but reuses existing layers.
+func updateLayerRecursive(w widget.Widget, parentLayer compositor.ContainerLayer, index map[uint64]layerIndex, localX, localY float32) {
+	if w == nil {
+		return
+	}
+
+	type boundsGetter interface{ Bounds() geometry.Rect }
+	var boundsMin geometry.Point
+	if bg, ok := w.(boundsGetter); ok {
+		boundsMin = bg.Bounds().Min
+	}
+
+	bi, isBoundary := w.(boundaryInfo)
+	if isBoundary && bi.IsRepaintBoundary() {
+		offset := geometry.Pt(localX+boundsMin.X, localY+boundsMin.Y)
+		childOffset := updateBoundaryLayer(bi, w, offset, index)
+		parentLayer.Append(childOffset)
+
+		// Recurse into children with reset offset (boundary OffsetLayer
+		// already accounts for position).
+		for _, child := range w.Children() {
+			updateLayerRecursive(child, childOffset, index, 0, 0)
+		}
+		return
+	}
+
+	// Non-boundary: accumulate offset and recurse.
+	nextX := localX + boundsMin.X
+	nextY := localY + boundsMin.Y
+	for _, child := range w.Children() {
+		updateLayerRecursive(child, parentLayer, index, nextX, nextY)
+	}
+}
+
+// updateBoundaryLayer reuses or creates an OffsetLayer + PictureLayer pair
+// for a RepaintBoundary widget. If the boundary's cache key exists in the
+// index, the existing PictureLayerImpl is reused (fields updated in place).
+// Otherwise, a fresh pair is created (same as buildBoundaryLayer).
+func updateBoundaryLayer(bi boundaryInfo, w widget.Widget, offset geometry.Point, index map[uint64]layerIndex) *compositor.OffsetLayerImpl {
+	key := bi.BoundaryCacheKey()
+	existing, found := index[key]
+
+	if found && existing.pic != nil {
+		// Reuse existing layers. Detach from old parent to prevent
+		// double-parenting when Append attaches to new tree.
+		existing.offset.RemoveAll()
+		existing.offset.SetOffset(offset)
+
+		// Update PictureLayer fields from current widget state.
+		syncPictureLayer(existing.pic, bi, w)
+		existing.offset.Append(existing.pic)
+
+		// Mark as consumed so cleanup can detect removed boundaries.
+		delete(index, key)
+
+		return existing.offset
+	}
+
+	// No existing layer — create fresh (same as buildBoundaryLayer).
+	delete(index, key) // no-op if not found, but consistent
+	return buildBoundaryLayer(bi, w, offset)
+}
+
+// syncPictureLayer updates a reused PictureLayerImpl's fields from the
+// current boundary widget state. This is the per-frame O(1) update that
+// replaces allocating a new PictureLayerImpl.
+func syncPictureLayer(pic *compositor.PictureLayerImpl, bi boundaryInfo, w widget.Widget) {
+	cachedScene := bi.CachedScene()
+	if cachedScene != nil {
+		pic.SetPicture(cachedScene)
+	}
+	if bi.IsSceneDirty() {
+		pic.MarkDirty()
+	} else {
+		pic.ClearDirty()
+	}
+
+	pic.SetBoundaryCacheKey(bi.BoundaryCacheKey())
+	pic.SetRoot(bi.Parent() == nil)
+	pic.SetSceneVersion(bi.SceneCacheVersion())
+
+	bounds := bi.Bounds()
+	pic.SetSize(int(bounds.Width()), int(bounds.Height()))
+	pic.SetScreenOrigin(bi.ScreenOrigin())
+
+	// Update compositor clip for viewport culling.
+	type compositorClipper interface {
+		HasCompositorClip() bool
+		CompositorClip() geometry.Rect
+		IsScreenOriginValid() bool
+	}
+	if cc, ok := w.(compositorClipper); ok && cc.HasCompositorClip() {
+		pic.SetPictureClipRect(cc.CompositorClip())
+	}
 }
 
 // buildLayerRecursive walks the widget tree, adding PictureLayer for each boundary.
@@ -61,23 +228,8 @@ func buildLayerRecursive(w widget.Widget, parentLayer compositor.ContainerLayer,
 
 	bi, isBoundary := w.(boundaryInfo)
 	if isBoundary && bi.IsRepaintBoundary() {
-		// Offset relative to parent boundary = accumulated local offset + own bounds.Min
 		offset := geometry.Pt(localX+boundsMin.X, localY+boundsMin.Y)
-
-		childOffset := compositor.NewOffsetLayer(offset)
-		pic := compositor.NewPictureLayer()
-
-		cachedScene := bi.CachedScene()
-		if cachedScene != nil {
-			pic.SetPicture(cachedScene)
-		}
-		if bi.IsSceneDirty() {
-			pic.MarkDirty()
-		} else {
-			pic.ClearDirty()
-		}
-
-		childOffset.Append(pic)
+		childOffset := buildBoundaryLayer(bi, w, offset)
 		parentLayer.Append(childOffset)
 
 		// Recurse into children. Local offset resets to (0,0) because
@@ -94,6 +246,47 @@ func buildLayerRecursive(w widget.Widget, parentLayer compositor.ContainerLayer,
 	for _, child := range w.Children() {
 		buildLayerRecursive(child, parentLayer, nextX, nextY)
 	}
+}
+
+// buildBoundaryLayer creates an OffsetLayer + PictureLayer for a RepaintBoundary widget.
+// Populates all Phase D fields (cache key, root flag, scene version, size,
+// screen origin, compositor clip) from the boundary widget.
+func buildBoundaryLayer(bi boundaryInfo, w widget.Widget, offset geometry.Point) *compositor.OffsetLayerImpl {
+	childOffset := compositor.NewOffsetLayer(offset)
+	pic := compositor.NewPictureLayer()
+
+	cachedScene := bi.CachedScene()
+	if cachedScene != nil {
+		pic.SetPicture(cachedScene)
+	}
+	if bi.IsSceneDirty() {
+		pic.MarkDirty()
+	} else {
+		pic.ClearDirty()
+	}
+
+	// Phase D: populate fields that link PictureLayer to GPU texture cache.
+	pic.SetBoundaryCacheKey(bi.BoundaryCacheKey())
+	pic.SetRoot(bi.Parent() == nil)
+	pic.SetSceneVersion(bi.SceneCacheVersion())
+	bounds := bi.Bounds()
+	pic.SetSize(int(bounds.Width()), int(bounds.Height()))
+
+	// Store screen origin for compositor blit positioning.
+	pic.SetScreenOrigin(bi.ScreenOrigin())
+
+	// Store compositor clip for viewport culling (ScrollView items).
+	type compositorClipper interface {
+		HasCompositorClip() bool
+		CompositorClip() geometry.Rect
+		IsScreenOriginValid() bool
+	}
+	if cc, ok := w.(compositorClipper); ok && cc.HasCompositorClip() {
+		pic.SetPictureClipRect(cc.CompositorClip())
+	}
+
+	childOffset.Append(pic)
+	return childOffset
 }
 
 // PaintBoundaryLayers walks the widget tree and re-records dirty boundaries.
@@ -113,6 +306,84 @@ func PaintBoundaryLayersWithContext(root widget.Widget, _ *compositor.OffsetLaye
 		return
 	}
 	paintBoundaryRecursiveCtx(root, ctx)
+}
+
+// PaintOverlayBoundaries re-records dirty overlay content boundaries.
+// Overlay content widgets are already marked as RepaintBoundary by PushOverlay.
+// This function walks each overlay content widget (same as PaintBoundaryLayers
+// walks the main tree) so their CachedScene values are fresh for the compositor.
+func PaintOverlayBoundaries(overlayWidgets []widget.Widget, ctx widget.Context) {
+	for _, w := range overlayWidgets {
+		if w == nil {
+			continue
+		}
+		paintBoundaryRecursiveCtx(w, ctx)
+	}
+}
+
+// AppendOverlaysToLayerTree adds overlay content boundaries to an existing
+// Layer Tree. Overlays are appended AFTER main tree children, so they
+// composite on top (correct Z-order: main content → overlays bottom-to-top).
+//
+// Each overlay content widget that is a RepaintBoundary gets its own
+// OffsetLayer + PictureLayer in the tree, just like main tree boundaries.
+// Non-boundary overlay widgets are skipped (they have no scene to composite).
+//
+// The existing parameter is used for persistent tree reuse: overlay layers
+// from previous frames are matched by BoundaryCacheKey.
+func AppendOverlaysToLayerTree(tree *compositor.OffsetLayerImpl, overlayWidgets []widget.Widget, existing *compositor.OffsetLayerImpl) {
+	if tree == nil || len(overlayWidgets) == 0 {
+		return
+	}
+
+	// Record child count before appending so we can fix overlay-specific
+	// flags on the newly added layers below.
+	preCount := len(tree.Children())
+
+	// Collect existing overlay layers for reuse.
+	var index map[uint64]layerIndex
+	if existing != nil {
+		index = collectLayerIndex(existing)
+	}
+
+	for _, w := range overlayWidgets {
+		if w == nil {
+			continue
+		}
+		if index != nil {
+			updateLayerRecursive(w, tree, index, 0, 0)
+		} else {
+			buildLayerRecursive(w, tree, 0, 0)
+		}
+	}
+
+	// Fix IsRoot flag on overlay PictureLayers. Overlay content widgets have
+	// Parent() == nil (they're standalone, not part of the main tree), so
+	// buildBoundaryLayer/syncPictureLayer sets IsRoot=true. This causes
+	// DrawGPUTextureBase (QueueBaseLayer, last-call-wins) to overwrite the
+	// actual root texture with the overlay texture → black background.
+	// Overlays must use DrawGPUTexture (sublayer blit) instead.
+	for _, child := range tree.Children()[preCount:] {
+		clearRootOnPictureLayers(child)
+	}
+}
+
+// clearRootOnPictureLayers walks a layer subtree and sets IsRoot=false on
+// every PictureLayerImpl. Used by AppendOverlaysToLayerTree to prevent
+// overlay boundaries from being treated as the base layer during compositing.
+func clearRootOnPictureLayers(layer compositor.Layer) {
+	if layer == nil {
+		return
+	}
+	if pic, ok := layer.(*compositor.PictureLayerImpl); ok {
+		pic.SetRoot(false)
+		return
+	}
+	if cl, ok := layer.(compositor.ContainerLayer); ok {
+		for _, ch := range cl.Children() {
+			clearRootOnPictureLayers(ch)
+		}
+	}
 }
 
 // paintBoundaryRecursiveCtx walks the widget tree, re-recording dirty boundaries.
@@ -158,12 +429,22 @@ func recordBoundary(bi boundaryInfo, ctx widget.Context) {
 	if cs, ok := bi.(callbackSetter); ok && ctx != nil {
 		capturedBi := bi
 		cs.SetOnBoundaryDirty(func() {
-			bounds := capturedBi.Bounds()
-			origin := capturedBi.ScreenOrigin()
-			ctx.InvalidateRect(geometry.Rect{
-				Min: origin,
-				Max: geometry.Pt(origin.X+bounds.Width(), origin.Y+bounds.Height()),
-			})
+			// ADR-028 Phase C: register in flat dirty boundary set for O(1)
+			// frame skip. Flutter _nodesNeedingPaint.add() equivalent.
+			//
+			// NOTE: do NOT call ctx.InvalidateRect here. InvalidateRect sets
+			// window.needsRedraw=true which forces ROOT re-recording every
+			// frame. Child boundary dirty should only re-record the child —
+			// not the root. RegisterDirtyBoundary adds to flat dirty set AND
+			// wakes the render loop via RequestRedraw (wired in window.go).
+			type cacheKeyProvider interface {
+				BoundaryCacheKey() uint64
+			}
+			if reg, ok := ctx.(widget.DirtyBoundaryRegistrar); ok {
+				if ckp, ok2 := capturedBi.(cacheKeyProvider); ok2 {
+					reg.RegisterDirtyBoundary(ckp.BoundaryCacheKey())
+				}
+			}
 		})
 	}
 	bounds := bi.Bounds()
@@ -238,6 +519,22 @@ func recordBoundary(bi boundaryInfo, ctx widget.Context) {
 	if ds, ok := bi.(dirtySuppressor); ok {
 		ds.SetSuppressDirtyCallback(false)
 	}
+
+	// Animated widgets (spinner) re-dirty during Draw (SetNeedsRedraw →
+	// InvalidateScene), but callback was suppressed. Now suppress is off —
+	// if boundary re-dirtied, register it for next frame.
+	// NOTE: use RegisterDirtyBoundary (NOT InvalidateRect) to avoid setting
+	// window.needsRedraw which forces root re-recording. The boundary is
+	// already in the flat dirty set — just needs RequestRedraw to wake loop.
+	if bi.IsSceneDirty() && ctx != nil {
+		type cacheKeyProvider interface{ BoundaryCacheKey() uint64 }
+		if reg, ok := ctx.(widget.DirtyBoundaryRegistrar); ok {
+			if ckp, ok2 := bi.(cacheKeyProvider); ok2 {
+				reg.RegisterDirtyBoundary(ckp.BoundaryCacheKey())
+			}
+		}
+	}
+
 	cleanup()
 
 	bi.SetCachedScene(cachedScene)

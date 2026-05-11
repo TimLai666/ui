@@ -159,10 +159,23 @@ func (l *OffsetLayerImpl) Append(child Layer) {
 //
 // Flutter equivalent: PictureLayer. Contains the recorded draw
 // commands from a RepaintBoundary's subtree.
+//
+// Phase D fields (boundaryCacheKey, isRoot, width, height) link
+// this layer to the per-boundary GPU texture cache in renderLoop.
+// BuildLayerTree populates them; compositeTexturesFromTree reads them.
 type PictureLayerImpl struct {
 	layerBase
-	picture *scene.Scene
-	dirty   bool
+	picture          *scene.Scene
+	dirty            bool
+	boundaryCacheKey uint64         // Links to per-boundary texture cache (renderLoop.boundaryTextures).
+	isRoot           bool           // True for the root boundary (uses DrawGPUTextureBase).
+	width            int            // Boundary width in logical pixels.
+	height           int            // Boundary height in logical pixels.
+	screenOrigin     geometry.Point // Screen-space position for texture blit.
+	screenOriginSet  bool           // True when ScreenOrigin was populated by BuildLayerTree.
+	clipRect         geometry.Rect  // Compositor clip for viewport culling (ScrollView).
+	hasClip          bool           // True when clipRect is set.
+	sceneVersion     uint64         // Monotonic counter from WidgetBase.SceneCacheVersion.
 }
 
 // NewPictureLayer creates a new PictureLayer (initially dirty, no picture).
@@ -175,6 +188,55 @@ func (l *PictureLayerImpl) SetPicture(s *scene.Scene) { l.picture = s; l.MarkNee
 func (l *PictureLayerImpl) IsDirty() bool             { return l.dirty }
 func (l *PictureLayerImpl) MarkDirty()                { l.dirty = true; l.MarkNeedsCompositing() }
 func (l *PictureLayerImpl) ClearDirty()               { l.dirty = false }
+
+// BoundaryCacheKey returns the unique ID linking this layer to the
+// per-boundary GPU texture cache. Set by BuildLayerTree.
+func (l *PictureLayerImpl) BoundaryCacheKey() uint64 { return l.boundaryCacheKey }
+
+// SetBoundaryCacheKey stores the boundary's unique cache key.
+func (l *PictureLayerImpl) SetBoundaryCacheKey(k uint64) { l.boundaryCacheKey = k }
+
+// IsRoot reports whether this PictureLayer represents the root boundary.
+// The root uses DrawGPUTextureBase (background), others use DrawGPUTexture.
+func (l *PictureLayerImpl) IsRoot() bool { return l.isRoot }
+
+// SetRoot marks this layer as the root boundary.
+func (l *PictureLayerImpl) SetRoot(v bool) { l.isRoot = v }
+
+// Size returns the boundary dimensions in logical pixels.
+func (l *PictureLayerImpl) Size() (int, int) { return l.width, l.height }
+
+// SetSize stores the boundary dimensions.
+func (l *PictureLayerImpl) SetSize(w, h int) { l.width = w; l.height = h }
+
+// ScreenOrigin returns the screen-space position for texture blitting.
+func (l *PictureLayerImpl) ScreenOrigin() geometry.Point { return l.screenOrigin }
+
+// SetScreenOrigin stores the screen-space position from the boundary widget.
+func (l *PictureLayerImpl) SetScreenOrigin(p geometry.Point) {
+	l.screenOrigin = p
+	l.screenOriginSet = true
+}
+
+// IsScreenOriginValid reports whether ScreenOrigin was populated.
+func (l *PictureLayerImpl) IsScreenOriginValid() bool { return l.screenOriginSet }
+
+// PictureClipRect returns the compositor clip rectangle for viewport culling.
+func (l *PictureLayerImpl) PictureClipRect() geometry.Rect { return l.clipRect }
+
+// SetPictureClipRect stores the compositor clip from the boundary widget.
+func (l *PictureLayerImpl) SetPictureClipRect(r geometry.Rect) { l.clipRect = r; l.hasClip = true }
+
+// HasPictureClip reports whether a compositor clip is set on this layer.
+func (l *PictureLayerImpl) HasPictureClip() bool { return l.hasClip }
+
+// SceneVersion returns the monotonic scene cache version from the source
+// boundary widget. Used by renderBoundaryTexturesFromTree to detect fresh
+// recordings without accessing the widget tree.
+func (l *PictureLayerImpl) SceneVersion() uint64 { return l.sceneVersion }
+
+// SetSceneVersion stores the boundary widget's SceneCacheVersion.
+func (l *PictureLayerImpl) SetSceneVersion(v uint64) { l.sceneVersion = v }
 
 // ClipRectLayerImpl is a container layer with a clip rectangle.
 //

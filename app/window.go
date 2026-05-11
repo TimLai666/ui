@@ -20,8 +20,13 @@ import (
 
 // dirtyBoundaryEntry tracks a RepaintBoundary that has been marked dirty
 // by upward propagation. The key is the boundary's CacheKey for deduplication.
+// The struct is intentionally minimal — only the key matters for O(1) lookup.
+// Future: add depth field for deepest-first paint ordering.
 type dirtyBoundaryEntry struct {
-	boundary widget.RepaintBoundaryMarker
+	// present is always true. The struct exists so the map value is not empty,
+	// allowing future extension (depth, boundary reference) without changing
+	// the AddDirtyBoundary signature.
+	present bool
 }
 
 const (
@@ -63,6 +68,12 @@ type Window struct {
 	// animIdleFrames counts consecutive frames with no Invalidate call.
 	// Used to stop the animation pumper after animations complete.
 	animIdleFrames int
+
+	// needsAnimationFrame is set by ScheduleAnimationFrame (during Draw)
+	// and persists across ClearAfterPaint. Checked by desktop.draw frame
+	// skip to ensure animated boundary frames are not skipped.
+	// Flutter equivalent: _hasScheduledFrame.
+	needsAnimationFrame bool
 
 	// needsLayout indicates that layout should be recalculated.
 	needsLayout bool
@@ -190,13 +201,13 @@ func newWindow(
 	ctx.SetOverlayManager(&windowOverlayManager{window: w})
 
 	// Wire invalidation callback to request redraw.
-	// Invalidate = structural change (layout + redraw of entire tree).
+	// ADR-028: Invalidate triggers layout + redraw, but does NOT mark
+	// ALL widgets dirty. Widgets that need redraw call SetNeedsRedraw
+	// themselves. MarkRedrawInTree was the source of full-window dirty
+	// on every ctx.Invalidate() call (ScrollView full-window green).
 	ctx.SetOnInvalidate(func() {
 		w.needsLayout = true
 		w.needsRedraw = true
-		if w.root != nil {
-			widget.MarkRedrawInTree(w.root)
-		}
 		if w.wp != nil {
 			w.wp.RequestRedraw()
 		}
@@ -220,8 +231,23 @@ func newWindow(
 	// its configured rate (30fps default) and triggers renders.
 	ctx.SetOnScheduleAnimation(func() {
 		w.animIdleFrames = 0
+		w.needsAnimationFrame = true
 		if w.animToken == nil && w.wp != nil {
 			w.animToken = newAnimPumper(w.wp)
+		}
+	})
+
+	// Wire dirty boundary registration so upward propagation populates the
+	// flat dirty boundary set. This replaces O(n) NeedsRedrawInTreeNonBoundary
+	// tree walks with O(1) HasDirtyBoundaries map lookup for frame skip.
+	// Flutter equivalent: markNeedsPaint adds to _nodesNeedingPaint list.
+	ctx.SetOnRegisterDirtyBoundary(func(key uint64) {
+		w.AddDirtyBoundary(key)
+		// Wake the render loop WITHOUT setting needsRedraw (which would
+		// force root re-recording). HasDirtyBoundaries is sufficient for
+		// frame skip. RequestRedraw only wakes the loop.
+		if w.wp != nil {
+			w.wp.RequestRedraw()
 		}
 	})
 
@@ -465,6 +491,7 @@ func (w *Window) Frame() {
 	// Layout changes always require a redraw since widget positions may shift.
 	var layoutDur time.Duration
 	if w.needsLayout {
+		ui.Logger().Info("[LAYOUT-TRIGGER]")
 		layoutStart := time.Now()
 		w.layout()
 		layoutDur = time.Since(layoutStart)
@@ -474,18 +501,17 @@ func (w *Window) Frame() {
 		if !w.ctx.IsInvalidated() {
 			w.needsLayout = false
 		}
-		// Layout changes require full redraw since widget positions may shift,
-		// making the persistent pixmap invalid (stale pixels at old positions).
+		// Layout completed — widgets with changed positions need redraw.
+		// ADR-028: do NOT MarkRedrawInTree(root) — that marks ALL widgets
+		// dirty → full screen repaint. Only widgets that actually changed
+		// should be dirty (they called SetNeedsRedraw during layout).
 		w.needsRedraw = true
-		w.needsFullRepaint = true
-		widget.MarkRedrawInTree(w.root)
 	}
 
-	// Determine if any widget in the tree needs redraw.
-	// This check is O(n) in the worst case but short-circuits on first dirty widget.
-	if !w.needsRedraw {
-		w.needsRedraw = widget.NeedsRedrawInTree(w.root)
-	}
+	// ADR-028 Phase C: O(1) dirty check. The needsRedraw flag is set by
+	// onInvalidate, onInvalidateRect, and scheduler.SetOnDirty callbacks.
+	// Boundary widgets populate dirtyBoundaries via RegisterDirtyBoundary.
+	// No O(n) NeedsRedrawInTreeNonBoundary tree walk needed.
 
 	// Draw the widget tree.
 	// In hosted mode (wp != nil), DrawTo() is called later by the host
@@ -511,7 +537,7 @@ func (w *Window) Frame() {
 	// Start pumper when any animation is active (Invalidate from tickAnimation).
 	// Keep pumper running for a few extra frames to handle animation completion
 	// and prevent start/stop thrashing from periodic data updates.
-	if w.ctx.IsInvalidated() || !w.ctx.InvalidatedRect().IsEmpty() {
+	if w.ctx.IsInvalidated() || !w.ctx.InvalidatedRect().IsEmpty() || w.needsAnimationFrame {
 		w.animIdleFrames = 0
 		if w.animToken == nil && w.wp != nil {
 			w.animToken = newAnimPumper(w.wp)
@@ -550,17 +576,15 @@ func (w *Window) NeedsLayout() bool {
 	return w.needsLayout
 }
 
-// NeedsRedraw reports whether any widget in the tree needs re-rendering.
+// NeedsRedraw reports whether the window-level redraw flag is set.
 //
-// When this returns false, the host application can skip calling [Window.DrawTo]
-// and reuse the previous frame's output from the GPU framebuffer. This is the
-// primary optimization of retained-mode rendering: idle UIs consume zero CPU
-// for rendering.
+// This is an O(1) check — the flag is set by onInvalidate, onInvalidateRect,
+// and scheduler.SetOnDirty callbacks. No tree walk is performed.
+//
+// ADR-028 Phase C: removed O(n) NeedsRedrawInTreeNonBoundary fallback.
+// All dirty propagation paths now set this flag or populate dirtyBoundaries.
 func (w *Window) NeedsRedraw() bool {
-	if w.needsRedraw {
-		return true
-	}
-	return widget.NeedsRedrawInTree(w.root)
+	return w.needsRedraw
 }
 
 // LastDrawStats returns the per-widget statistics from the most recent
@@ -984,7 +1008,16 @@ type windowOverlayManager struct {
 }
 
 // PushOverlay wraps the widget in an overlay.Container and pushes it.
+// The content widget is promoted to a RepaintBoundary via SetRepaintBoundary(true)
+// (ADR-024 WidgetBase property). No wrapper widget created — the content widget
+// itself becomes the boundary. Clean overlays = texture blit (zero re-render).
+// Dirty overlays (hover) = re-render only content texture.
 func (m *windowOverlayManager) PushOverlay(w widget.Widget, onDismiss func()) {
+	// ADR-024 + ADR-029: promote content to RepaintBoundary for damage isolation.
+	type boundarySetter interface{ SetRepaintBoundary(bool) }
+	if bs, ok := w.(boundarySetter); ok {
+		bs.SetRepaintBoundary(true)
+	}
 	container := overlay.NewContainer(w, m.window.windowSize,
 		overlay.WithOnDismiss(func() {
 			if onDismiss != nil {
@@ -1019,11 +1052,18 @@ var _ widget.OverlayManager = (*windowOverlayManager)(nil)
 // sends MouseEnter/MouseLeave events to individual widgets as the mouse
 // moves across the widget tree.
 //
+// When overlays are open (dropdowns, dialogs), hover is directed to the
+// overlay stack first. The topmost overlay's content widget tree receives
+// hover hit-testing. If the mouse is outside the overlay content, hover is
+// blocked from reaching background widgets (Flutter ModalBarrier pattern).
+// This prevents background ListView items from highlighting while a
+// dropdown menu is open on top of them.
+//
 // This uses ScreenBounds (computed during the Draw pass) for correct
 // coordinate mapping, which accounts for scroll offsets, box positions,
 // and all parent transforms.
 func (w *Window) updateHover(pos geometry.Point, buttons event.ButtonState, mods event.Modifiers) {
-	target := hitTest(w.root, pos)
+	target := w.overlayAwareHitTest(pos)
 	if target == w.hoveredWidget {
 		return
 	}
@@ -1082,6 +1122,39 @@ func (w *Window) clearHover(buttons event.ButtonState, mods event.Modifiers) {
 // or nil if no widget is hovered.
 func (w *Window) HoveredWidget() widget.Widget {
 	return w.hoveredWidget
+}
+
+// overlayAwareHitTest performs hit-testing that respects the overlay stack.
+//
+// When overlays are open, the topmost overlay's widget tree is tested first.
+// If a widget inside the overlay content matches, it is returned. If no
+// overlay widget matches (mouse outside overlay content), nil is returned
+// to block hover from reaching background widgets. This is the Flutter
+// ModalBarrier pattern: overlays absorb hover to prevent background
+// interaction while a dropdown or dialog is open.
+//
+// When no overlays are open, falls through to normal root tree hit-testing.
+func (w *Window) overlayAwareHitTest(pos geometry.Point) widget.Widget {
+	if w.overlays != nil && w.overlays.Len() > 0 {
+		// Walk overlays top-to-bottom (highest z-order first).
+		overlayList := w.overlays.List()
+		for i := len(overlayList) - 1; i >= 0; i-- {
+			o := overlayList[i]
+			// Hit-test the overlay widget tree (Container + content).
+			if hit := hitTest(o, pos); hit != nil {
+				// Ignore hits on the Container itself (full-window backdrop).
+				// Only return hits on actual content widgets inside the overlay.
+				if hit == o {
+					continue
+				}
+				return hit
+			}
+		}
+		// Overlays are open but mouse is not over any overlay content.
+		// Block hover from reaching background widgets.
+		return nil
+	}
+	return hitTest(w.root, pos)
 }
 
 // hitTest walks the widget tree depth-first and returns the deepest
@@ -1163,12 +1236,15 @@ func widgetCursorToPlatform(c widget.CursorType) gpucontext.CursorShape {
 // onBoundaryDirty callback during upward dirty propagation.
 //
 // The key parameter is the boundary's unique cache key for deduplication.
-// If the boundary is already in the set, this is a no-op.
-func (w *Window) AddDirtyBoundary(key uint64, boundary widget.RepaintBoundaryMarker) {
+// If the boundary is already in the set, this is a no-op (O(1) guard).
+//
+// This populates the flat dirty boundary set used by HasDirtyBoundaries
+// for O(1) frame skip decisions, replacing O(n) NeedsRedrawInTreeNonBoundary.
+func (w *Window) AddDirtyBoundary(key uint64) {
 	if w.dirtyBoundaries == nil {
 		w.dirtyBoundaries = make(map[uint64]dirtyBoundaryEntry)
 	}
-	w.dirtyBoundaries[key] = dirtyBoundaryEntry{boundary: boundary}
+	w.dirtyBoundaries[key] = dirtyBoundaryEntry{present: true}
 }
 
 // HasDirtyBoundaries reports whether any RepaintBoundary has been marked
@@ -1217,6 +1293,17 @@ func (w *Window) CollectDirtyRegions() {
 	}
 	w.dirtyTracker.Reset()
 	w.dirtyCollector.Collect(w.root)
+	// ADR-029: also collect dirty regions from overlay content widgets.
+	// Overlays are NOT in the root tree — without this, dirty overlay
+	// widgets (hover on dropdown menu items) are invisible to both
+	// cyan debug overlay (GOGPU_DEBUG_DIRTY) and green debug overlay
+	// (GOGPU_DEBUG_DAMAGE via TrackDamageRect from prePaintDirtyRegions).
+	// Use OverlayContentWidgets (not overlays.List) to reach the actual
+	// content widgets directly, bypassing Container which may not expose
+	// children through the standard Children() interface.
+	for _, cw := range w.OverlayContentWidgets() {
+		w.dirtyCollector.Collect(cw)
+	}
 	w.dirtyTracker.Optimize()
 }
 
@@ -1236,6 +1323,110 @@ func (w *Window) ClearAfterPaint() {
 	w.needsFullRepaint = false
 }
 
+// NeedsAnimationFrame reports whether an animated boundary requested
+// a frame via ScheduleAnimationFrame. This flag persists across
+// ClearAfterPaint (unlike needsRedraw) to prevent frame skip from
+// dropping animation frames. Flutter equivalent: _hasScheduledFrame.
+func (w *Window) NeedsAnimationFrame() bool {
+	return w.needsAnimationFrame
+}
+
+// ClearAnimationFrame resets the animation frame flag. Called by
+// desktop.draw AFTER the frame skip check passes, ensuring the
+// flag is consumed exactly once per frame.
+func (w *Window) ClearAnimationFrame() {
+	w.needsAnimationFrame = false
+}
+
+// HasOverlays reports whether any overlays (dropdowns, dialogs) are active.
+func (w *Window) HasOverlays() bool {
+	return w.overlays != nil && w.overlays.Len() > 0
+}
+
+// OverlayCount returns the number of active overlays.
+func (w *Window) OverlayCount() int {
+	if w.overlays == nil {
+		return 0
+	}
+	return w.overlays.Len()
+}
+
+// HasDirtyOverlays reports whether any overlay widget has NeedsRedraw=true.
+// Used to selectively enable damage tracking during DrawOverlays — unchanged
+// overlays suppress tracking (avoid permanent green debug overlay), while
+// changed overlays (hover) enable tracking for correct green flash.
+func (w *Window) HasDirtyOverlays() bool {
+	if w.overlays == nil || w.overlays.Len() == 0 {
+		return false
+	}
+	for _, o := range w.overlays.List() {
+		if widget.NeedsRedrawInTree(o) {
+			return true
+		}
+	}
+	return false
+}
+
+// ClearOverlayRedraw clears NeedsRedraw on all overlay widgets after
+// drawing with damage tracking enabled.
+func (w *Window) ClearOverlayRedraw() {
+	if w.overlays == nil {
+		return
+	}
+	for _, o := range w.overlays.List() {
+		widget.ClearRedrawInTree(o)
+	}
+}
+
+// DirtyOverlayContentRects returns the screen bounds of overlay CONTENT widgets
+// (not the full-window Container backdrop) that have NeedsRedraw=true.
+//
+// This enables granular damage tracking for overlays. Without this, the Container
+// backdrop (full-window scrim for modal overlays) registers the entire window as
+// damage, causing GOGPU_DEBUG_DAMAGE green overlay on the full screen.
+//
+// ADR-029: retained-mode overlays. Flutter pattern: ModalBarrier is event-only
+// (no draw contribution to damage), overlay content is in its own RepaintBoundary.
+// Our equivalent: suppress damage for Container backdrop, track only content rects.
+//
+// For overlay types that implement ContentProvider (Container), the content widget's
+// bounds are returned. For other overlay types, the overlay's own bounds are used.
+func (w *Window) DirtyOverlayContentRects() []geometry.Rect {
+	if w.overlays == nil || w.overlays.Len() == 0 {
+		return nil
+	}
+
+	var rects []geometry.Rect
+	for _, o := range w.overlays.List() {
+		if !widget.NeedsRedrawInTree(o) {
+			continue
+		}
+
+		// Try to get the content widget's bounds (Container pattern).
+		// Content bounds are tighter than Container bounds (full window).
+		type contentProvider interface {
+			Content() widget.Widget
+		}
+		if cp, ok := o.(contentProvider); ok {
+			content := cp.Content()
+			if content != nil {
+				type bounder interface{ Bounds() geometry.Rect }
+				if b, ok2 := content.(bounder); ok2 {
+					rects = append(rects, b.Bounds())
+					continue
+				}
+			}
+		}
+
+		// Fallback: use overlay's own bounds (non-Container overlays).
+		type bounder interface{ Bounds() geometry.Rect }
+		if b, ok := o.(bounder); ok {
+			rects = append(rects, b.Bounds())
+		}
+	}
+	return rects
+}
+
 // DrawOverlays draws overlay widgets (dropdowns, dialogs) on the given canvas.
 // In Flutter, overlays are part of the same widget tree. In our architecture,
 // they are managed separately by overlay.Stack and drawn after the main scene.
@@ -1243,59 +1434,58 @@ func (w *Window) DrawOverlays(canvas widget.Canvas) {
 	w.overlays.Draw(w.ctx, canvas)
 }
 
-// BoundaryDamageRegion computes the union of screen bounds of all dirty
-// RepaintBoundary instances. This provides a tighter damage region for
-// the compositor when only specific boundaries changed (ADR-007 Phase 3,
-// Task 3d).
+// OverlayContentWidgets returns the content widgets from all active overlays.
+// For Container overlays, this returns the inner content widget (which is
+// marked as RepaintBoundary by PushOverlay). For non-Container overlays,
+// the overlay itself is returned.
 //
-// Returns a zero Rect when no boundaries are dirty.
-//
-// The compositor can use min(BoundaryDamageRegion, LastDirtyUnion) to
-// get the tightest possible damage region for scissored GPU present.
-func (w *Window) BoundaryDamageRegion() geometry.Rect {
-	if len(w.dirtyBoundaries) == 0 {
-		return geometry.Rect{}
+// Used by the compositor pipeline to include overlay boundaries in the
+// Layer Tree alongside the main widget tree boundaries.
+func (w *Window) OverlayContentWidgets() []widget.Widget {
+	if w.overlays == nil || w.overlays.Len() == 0 {
+		return nil
 	}
-
-	var union geometry.Rect
-	first := true
-	for _, entry := range w.dirtyBoundaries {
-		bounds := boundaryScreenBounds(entry.boundary)
-		if bounds.IsEmpty() {
-			continue
+	result := make([]widget.Widget, 0, w.overlays.Len())
+	for _, o := range w.overlays.List() {
+		type contentProvider interface {
+			Content() widget.Widget
 		}
-		if first {
-			union = bounds
-			first = false
-		} else {
-			union = union.Union(bounds)
+		if cp, ok := o.(contentProvider); ok {
+			content := cp.Content()
+			if content != nil {
+				result = append(result, content)
+				continue
+			}
 		}
+		// Fallback: non-Container overlay is its own widget.
+		result = append(result, o)
 	}
-
-	return union
+	return result
 }
 
-// boundaryScreenBounds extracts the screen bounds from a RepaintBoundaryMarker.
-// Uses ScreenBounds() if available (computed during Draw), falls back to Bounds().
-func boundaryScreenBounds(b widget.RepaintBoundaryMarker) geometry.Rect {
-	type screenBounder interface {
-		ScreenBounds() geometry.Rect
+// DrawOverlayScrim draws only the modal backdrop scrim for overlay Containers.
+// Non-modal overlays have no scrim. This is the minimal immediate-mode part
+// that remains after overlay content moves to the boundary pipeline.
+//
+// Flutter equivalent: ModalBarrier.build() draws a full-screen gesture detector
+// with optional color. The barrier is event-only in damage terms — no paint
+// contribution. Our scrim draws a semi-transparent rect for visual feedback.
+func (w *Window) DrawOverlayScrim(canvas widget.Canvas) {
+	if w.overlays == nil || w.overlays.Len() == 0 || canvas == nil {
+		return
 	}
-	if sb, ok := b.(screenBounder); ok {
-		r := sb.ScreenBounds()
-		if !r.IsEmpty() {
-			return r
+	for _, o := range w.overlays.List() {
+		type modalChecker interface {
+			Modal() bool
+			Bounds() geometry.Rect
 		}
+		mc, ok := o.(modalChecker)
+		if !ok || !mc.Modal() {
+			continue
+		}
+		scrim := widget.RGBA(0, 0, 0, 0.32)
+		canvas.DrawRect(mc.Bounds(), scrim)
 	}
-
-	type bounder interface {
-		Bounds() geometry.Rect
-	}
-	if bb, ok := b.(bounder); ok {
-		return bb.Bounds()
-	}
-
-	return geometry.Rect{}
 }
 
 // HasDirtyBoundariesOrNeedsRedraw reports whether any rendering work is

@@ -1545,17 +1545,7 @@ func TestWindow_AnimPumper_NotStartedWithoutWindowProvider(t *testing.T) {
 	}
 }
 
-// --- Dirty Boundaries Tests (ADR-007 Task 1e) ---
-
-// mockRepaintBoundary implements widget.RepaintBoundaryMarker for testing.
-type mockRepaintBoundary struct {
-	key        uint64
-	dirtyCount int
-}
-
-func (m *mockRepaintBoundary) MarkBoundaryDirty() {
-	m.dirtyCount++
-}
+// --- Dirty Boundaries Tests (ADR-007 Task 1e, Phase C: O(1) flat list) ---
 
 func TestWindow_DirtyBoundaries_Initial(t *testing.T) {
 	a := New()
@@ -1573,11 +1563,8 @@ func TestWindow_DirtyBoundaries_AddAndCount(t *testing.T) {
 	a := New()
 	w := a.Window()
 
-	rb1 := &mockRepaintBoundary{key: 1}
-	rb2 := &mockRepaintBoundary{key: 2}
-
-	w.AddDirtyBoundary(rb1.key, rb1)
-	w.AddDirtyBoundary(rb2.key, rb2)
+	w.AddDirtyBoundary(1)
+	w.AddDirtyBoundary(2)
 
 	if !w.HasDirtyBoundaries() {
 		t.Error("should have dirty boundaries after Add")
@@ -1591,10 +1578,8 @@ func TestWindow_DirtyBoundaries_Deduplication(t *testing.T) {
 	a := New()
 	w := a.Window()
 
-	rb := &mockRepaintBoundary{key: 42}
-
-	w.AddDirtyBoundary(rb.key, rb)
-	w.AddDirtyBoundary(rb.key, rb) // Same key — should deduplicate.
+	w.AddDirtyBoundary(42)
+	w.AddDirtyBoundary(42) // Same key — should deduplicate.
 
 	if w.DirtyBoundaryCount() != 1 {
 		t.Errorf("expected 1 dirty boundary (deduplicated), got %d", w.DirtyBoundaryCount())
@@ -1605,11 +1590,8 @@ func TestWindow_DirtyBoundaries_Clear(t *testing.T) {
 	a := New()
 	w := a.Window()
 
-	rb1 := &mockRepaintBoundary{key: 1}
-	rb2 := &mockRepaintBoundary{key: 2}
-
-	w.AddDirtyBoundary(rb1.key, rb1)
-	w.AddDirtyBoundary(rb2.key, rb2)
+	w.AddDirtyBoundary(1)
+	w.AddDirtyBoundary(2)
 
 	w.ClearDirtyBoundaries()
 
@@ -1625,141 +1607,87 @@ func TestWindow_DirtyBoundaries_ClearAndReuse(t *testing.T) {
 	a := New()
 	w := a.Window()
 
-	rb := &mockRepaintBoundary{key: 1}
-	w.AddDirtyBoundary(rb.key, rb)
+	w.AddDirtyBoundary(1)
 	w.ClearDirtyBoundaries()
 
 	// After clear, adding again should work.
-	rb2 := &mockRepaintBoundary{key: 2}
-	w.AddDirtyBoundary(rb2.key, rb2)
+	w.AddDirtyBoundary(2)
 
 	if w.DirtyBoundaryCount() != 1 {
 		t.Errorf("expected 1 dirty boundary after clear+add, got %d", w.DirtyBoundaryCount())
 	}
 }
 
-// --- Boundary Damage Region Tests (ADR-007 Phase 3, Task 3d) ---
-
-func TestWindow_BoundaryDamageRegion_Empty(t *testing.T) {
+func TestWindow_DirtyBoundaries_ClearedAfterPaintDirtyBoundaries(t *testing.T) {
 	a := New()
 	w := a.Window()
 
-	// No dirty boundaries → empty damage region.
-	r := w.BoundaryDamageRegion()
-	if !r.IsEmpty() {
-		t.Errorf("expected empty damage region, got %v", r)
-	}
-}
-
-func TestWindow_BoundaryDamageRegion_SingleBoundary(t *testing.T) {
-	a := New()
-	w := a.Window()
-
-	rb := &mockBoundaryWithBounds{
-		mockRepaintBoundary: mockRepaintBoundary{key: 1},
-		bounds:              geometry.NewRect(10, 20, 100, 50),
-	}
-	w.AddDirtyBoundary(rb.key, rb)
-
-	r := w.BoundaryDamageRegion()
-	if r.Min.X != 10 || r.Min.Y != 20 || r.Max.X != 110 || r.Max.Y != 70 {
-		t.Errorf("damage region = %v, want (10,20)-(110,70)", r)
-	}
-}
-
-func TestWindow_BoundaryDamageRegion_MultipleBoundaries(t *testing.T) {
-	a := New()
-	w := a.Window()
-
-	rb1 := &mockBoundaryWithBounds{
-		mockRepaintBoundary: mockRepaintBoundary{key: 1},
-		bounds:              geometry.NewRect(10, 10, 50, 50),
-	}
-	rb2 := &mockBoundaryWithBounds{
-		mockRepaintBoundary: mockRepaintBoundary{key: 2},
-		bounds:              geometry.NewRect(200, 150, 80, 60),
-	}
-	w.AddDirtyBoundary(rb1.key, rb1)
-	w.AddDirtyBoundary(rb2.key, rb2)
-
-	r := w.BoundaryDamageRegion()
-
-	// Union should cover both: min(10,10) to max(280,210).
-	if r.Min.X != 10 || r.Min.Y != 10 {
-		t.Errorf("damage region min = (%v,%v), want (10,10)", r.Min.X, r.Min.Y)
-	}
-	if r.Max.X != 280 || r.Max.Y != 210 {
-		t.Errorf("damage region max = (%v,%v), want (280,210)", r.Max.X, r.Max.Y)
-	}
-}
-
-func TestWindow_BoundaryDamageRegion_ScreenBoundsPreferred(t *testing.T) {
-	a := New()
-	w := a.Window()
-
-	rb := &mockBoundaryWithScreenBounds{
-		mockRepaintBoundary: mockRepaintBoundary{key: 1},
-		bounds:              geometry.NewRect(0, 0, 50, 50),
-		screenBounds:        geometry.NewRect(100, 200, 50, 50),
-	}
-	w.AddDirtyBoundary(rb.key, rb)
-
-	r := w.BoundaryDamageRegion()
-
-	// Should use ScreenBounds (100,200)-(150,250), not Bounds (0,0)-(50,50).
-	if r.Min.X != 100 || r.Min.Y != 200 {
-		t.Errorf("damage region min = (%v,%v), want (100,200)", r.Min.X, r.Min.Y)
-	}
-}
-
-func TestWindow_BoundaryDamageRegion_ClearedAfterPaint(t *testing.T) {
-	a := New()
-	w := a.Window()
-
-	rb := &mockBoundaryWithBounds{
-		mockRepaintBoundary: mockRepaintBoundary{key: 1},
-		bounds:              geometry.NewRect(10, 10, 50, 50),
-	}
-	w.AddDirtyBoundary(rb.key, rb)
-
-	r := w.BoundaryDamageRegion()
-	if r.IsEmpty() {
-		t.Fatal("pre-condition: damage region should not be empty")
+	w.AddDirtyBoundary(1)
+	if !w.HasDirtyBoundaries() {
+		t.Fatal("pre-condition: should have dirty boundary")
 	}
 
 	w.PaintDirtyBoundaries()
 
-	r = w.BoundaryDamageRegion()
-	if !r.IsEmpty() {
-		t.Error("damage region should be empty after PaintDirtyBoundaries")
+	if w.HasDirtyBoundaries() {
+		t.Error("dirty boundaries should be empty after PaintDirtyBoundaries")
 	}
 }
 
-// --- mockBoundaryWithBounds implements RepaintBoundaryMarker + Bounds() ---
+// TestWindow_DirtyBoundaryRegistration_ViaContext verifies that
+// ContextImpl.RegisterDirtyBoundary populates the Window's dirty set.
+// This is the O(1) flat dirty list that replaces O(n) tree walks.
+func TestWindow_DirtyBoundaryRegistration_ViaContext(t *testing.T) {
+	a := New()
+	w := a.Window()
+	ctx := w.Context()
 
-type mockBoundaryWithBounds struct {
-	mockRepaintBoundary
-	bounds geometry.Rect
+	if w.HasDirtyBoundaries() {
+		t.Fatal("pre-condition: should start clean")
+	}
+
+	// RegisterDirtyBoundary fires the callback wired in newWindow.
+	ctx.RegisterDirtyBoundary(42)
+
+	if !w.HasDirtyBoundaries() {
+		t.Error("RegisterDirtyBoundary should populate Window.dirtyBoundaries")
+	}
+	if w.DirtyBoundaryCount() != 1 {
+		t.Errorf("expected 1, got %d", w.DirtyBoundaryCount())
+	}
 }
 
-func (m *mockBoundaryWithBounds) Bounds() geometry.Rect {
-	return m.bounds
+// TestWindow_DirtyBoundaryRegistration_DeduplicatesSameKey verifies
+// that multiple RegisterDirtyBoundary calls with the same key
+// produce only one entry (map deduplication).
+func TestWindow_DirtyBoundaryRegistration_DeduplicatesSameKey(t *testing.T) {
+	a := New()
+	w := a.Window()
+	ctx := w.Context()
+
+	ctx.RegisterDirtyBoundary(7)
+	ctx.RegisterDirtyBoundary(7)
+	ctx.RegisterDirtyBoundary(7)
+
+	if w.DirtyBoundaryCount() != 1 {
+		t.Errorf("expected 1 (deduplicated), got %d", w.DirtyBoundaryCount())
+	}
 }
 
-// --- mockBoundaryWithScreenBounds implements ScreenBounds + Bounds ---
+// TestWindow_DirtyBoundaryRegistration_MultipleBoundaries verifies
+// that different keys produce separate entries.
+func TestWindow_DirtyBoundaryRegistration_MultipleBoundaries(t *testing.T) {
+	a := New()
+	w := a.Window()
+	ctx := w.Context()
 
-type mockBoundaryWithScreenBounds struct {
-	mockRepaintBoundary
-	bounds       geometry.Rect
-	screenBounds geometry.Rect
-}
+	ctx.RegisterDirtyBoundary(1)
+	ctx.RegisterDirtyBoundary(2)
+	ctx.RegisterDirtyBoundary(3)
 
-func (m *mockBoundaryWithScreenBounds) Bounds() geometry.Rect {
-	return m.bounds
-}
-
-func (m *mockBoundaryWithScreenBounds) ScreenBounds() geometry.Rect {
-	return m.screenBounds
+	if w.DirtyBoundaryCount() != 3 {
+		t.Errorf("expected 3, got %d", w.DirtyBoundaryCount())
+	}
 }
 
 // --- Cursor regression tests (2026-05-07) ---

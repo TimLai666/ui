@@ -175,6 +175,26 @@ type DirtyTrackerProvider interface {
 	DirtyTracker() DirtyTrackerRef
 }
 
+// DirtyBoundaryRegistrar is an optional interface implemented by Context
+// implementations that support O(1) flat dirty boundary tracking.
+//
+// During upward dirty propagation, when a RepaintBoundary's onBoundaryDirty
+// callback fires, it type-asserts the Context to DirtyBoundaryRegistrar
+// and registers the boundary in the Window's flat dirty set. This replaces
+// O(n) NeedsRedrawInTreeNonBoundary tree walks with O(1) map lookup.
+//
+// This is the Flutter _nodesNeedingPaint pattern: a flat list of dirty
+// RenderObjects, populated during markNeedsPaint, consumed during flushPaint.
+//
+// Example usage in onBoundaryDirty callback:
+//
+//	if reg, ok := ctx.(widget.DirtyBoundaryRegistrar); ok {
+//	    reg.RegisterDirtyBoundary(key)
+//	}
+type DirtyBoundaryRegistrar interface {
+	RegisterDirtyBoundary(key uint64)
+}
+
 // ImageCacheRef is a minimal interface for a centralized RepaintBoundary
 // pixel cache with LRU eviction. It is defined in the widget package so that
 // primitives/repaint_boundary.go can use the cache without importing
@@ -363,6 +383,13 @@ type ContextImpl struct {
 	// and LRU eviction across all boundaries in a window.
 	// Set by Window during initialization, cleared on close.
 	imageCache ImageCacheRef
+
+	// onRegisterDirtyBoundary is called when a RepaintBoundary transitions
+	// from clean to dirty via upward propagation. The Window wires this
+	// callback to AddDirtyBoundary during initialization, populating the
+	// flat dirty boundary set for O(1) frame skip decisions.
+	// This is the Flutter _nodesNeedingPaint.add() equivalent.
+	onRegisterDirtyBoundary func(key uint64)
 }
 
 // NewContext creates a new ContextImpl with default settings.
@@ -786,6 +813,35 @@ func (c *ContextImpl) SetImageCache(cache ImageCacheRef) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.imageCache = cache
+}
+
+// RegisterDirtyBoundary registers a RepaintBoundary as dirty in the
+// Window's flat dirty boundary set. Called from the onBoundaryDirty
+// callback wired by PaintBoundaryLayers.
+//
+// This populates the O(1) dirty boundary map that replaces O(n)
+// NeedsRedrawInTreeNonBoundary tree walks for frame skip decisions.
+// The key is the boundary's unique BoundaryCacheKey for deduplication.
+//
+// If no callback is wired (headless tests), this is a no-op.
+func (c *ContextImpl) RegisterDirtyBoundary(key uint64) {
+	c.mu.RLock()
+	cb := c.onRegisterDirtyBoundary
+	c.mu.RUnlock()
+	if cb != nil {
+		cb(key)
+	}
+}
+
+// SetOnRegisterDirtyBoundary sets the callback for RegisterDirtyBoundary.
+//
+// The Window wires this during initialization to AddDirtyBoundary, so that
+// upward dirty propagation populates the flat dirty set. This enables O(1)
+// HasDirtyBoundaries checks instead of O(n) tree walks.
+func (c *ContextImpl) SetOnRegisterDirtyBoundary(callback func(key uint64)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onRegisterDirtyBoundary = callback
 }
 
 // Verify ContextImpl implements Context.

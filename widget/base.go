@@ -573,12 +573,10 @@ func propagateDirtyUpward(w Widget) {
 			return
 		}
 
-		// Mark this ancestor widget as needing redraw (without re-propagating).
-		if setter, ok := w.(interface{ markDirtyLocal() }); ok {
-			setter.markDirtyLocal()
-		}
-
-		// Walk to next parent.
+		// Walk to next parent — do NOT mark intermediate ancestors dirty.
+		// Flutter markNeedsPaint: only the boundary gets marked, intermediates
+		// stay clean. Marking intermediates causes CollectDirtyRegions to
+		// report the entire parent chain → full screen damage overlay.
 		if pg, ok := w.(interface{ Parent() Widget }); ok {
 			w = pg.Parent()
 		} else {
