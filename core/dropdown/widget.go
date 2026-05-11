@@ -196,7 +196,9 @@ func (w *Widget) Open(ctx widget.Context) {
 		w.close(ctx)
 	})
 
-	ctx.Invalidate()
+	// ADR-028: visual only — trigger redraws to show open state.
+	// Overlay display is handled separately by DrawOverlays.
+	w.SetNeedsRedraw(true)
 }
 
 // Close closes the dropdown menu overlay.
@@ -220,7 +222,8 @@ func (w *Widget) close(ctx widget.Context) {
 		w.menuWidget = nil
 	}
 
-	ctx.Invalidate()
+	// ADR-028: visual only — trigger redraws to show closed state.
+	w.SetNeedsRedraw(true)
 }
 
 // selectItem is called when an item is selected from the menu.

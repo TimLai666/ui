@@ -107,7 +107,7 @@ func (m *menuWidget) Children() []widget.Widget {
 }
 
 // handleKeyEvent processes keyboard navigation.
-func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool {
+func (m *menuWidget) handleKeyEvent(_ widget.Context, e *event.KeyEvent) bool {
 	if e.KeyType != event.KeyPress && e.KeyType != event.KeyRepeat {
 		return false
 	}
@@ -115,13 +115,16 @@ func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool 
 	switch e.Key {
 	case event.KeyDown:
 		m.moveHighlight(1)
+		// SetNeedsRedraw is sufficient — menuWidget is a RepaintBoundary
+		// (set by PushOverlay). InvalidateScene fires onBoundaryDirty callback
+		// which calls RegisterDirtyBoundary + RequestRedraw, without polluting
+		// the root boundary. ctx.InvalidateRect would force root re-recording
+		// and produce a full-window dirty region that masks the menu's region.
 		m.SetNeedsRedraw(true)
-		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyUp:
 		m.moveHighlight(-1)
 		m.SetNeedsRedraw(true)
-		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyEnter, event.KeySpace:
 		if m.highlightedIndex >= 0 && m.highlightedIndex < len(m.items) {
@@ -134,13 +137,11 @@ func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool 
 		m.highlightedIndex = m.findNextEnabled(0, 1)
 		m.ensureVisible(m.highlightedIndex)
 		m.SetNeedsRedraw(true)
-		ctx.InvalidateRect(m.Bounds())
 		return true
 	case event.KeyEnd:
 		m.highlightedIndex = m.findNextEnabled(len(m.items)-1, -1)
 		m.ensureVisible(m.highlightedIndex)
 		m.SetNeedsRedraw(true)
-		ctx.InvalidateRect(m.Bounds())
 		return true
 	default:
 		return false
@@ -148,7 +149,7 @@ func (m *menuWidget) handleKeyEvent(ctx widget.Context, e *event.KeyEvent) bool 
 }
 
 // handleMouseEvent processes hover and click events.
-func (m *menuWidget) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) bool {
+func (m *menuWidget) handleMouseEvent(_ widget.Context, e *event.MouseEvent) bool {
 	bounds := m.Bounds()
 	if !bounds.Contains(e.Position) {
 		return false
@@ -160,7 +161,6 @@ func (m *menuWidget) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) b
 		if index != m.highlightedIndex {
 			m.highlightedIndex = index
 			m.SetNeedsRedraw(true)
-			ctx.InvalidateRect(m.Bounds())
 		}
 		return true
 	case event.MousePress:
@@ -178,7 +178,7 @@ func (m *menuWidget) handleMouseEvent(ctx widget.Context, e *event.MouseEvent) b
 }
 
 // handleWheelEvent processes scroll wheel events.
-func (m *menuWidget) handleWheelEvent(ctx widget.Context, e *event.WheelEvent) bool {
+func (m *menuWidget) handleWheelEvent(_ widget.Context, e *event.WheelEvent) bool {
 	bounds := m.Bounds()
 	if !bounds.Contains(e.Position) {
 		return false
@@ -194,14 +194,12 @@ func (m *menuWidget) handleWheelEvent(ctx widget.Context, e *event.WheelEvent) b
 		if m.scrollOffset > 0 {
 			m.scrollOffset--
 			m.SetNeedsRedraw(true)
-			ctx.InvalidateRect(m.Bounds())
 		}
 	} else if e.Delta.Y < 0 {
 		// Scroll down.
 		if m.scrollOffset < maxScroll {
 			m.scrollOffset++
 			m.SetNeedsRedraw(true)
-			ctx.InvalidateRect(m.Bounds())
 		}
 	}
 	return true

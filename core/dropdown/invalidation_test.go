@@ -139,7 +139,7 @@ func TestGranularInvalidation_Menu_WheelScroll(t *testing.T) {
 	}
 }
 
-func TestGranularInvalidation_OpenClose_KeepsFullInvalidation(t *testing.T) {
+func TestGranularInvalidation_OpenClose_UsesGranular(t *testing.T) {
 	w := New(Items("A", "B"))
 	w.SetBounds(geometry.NewRect(0, 0, 200, 40))
 
@@ -147,7 +147,12 @@ func TestGranularInvalidation_OpenClose_KeepsFullInvalidation(t *testing.T) {
 	w.open = true
 	w.close(ctx)
 
-	if !ctx.IsInvalidated() {
-		t.Error("close should use ctx.Invalidate() (structural change: overlay removed)")
+	// ADR-028: close uses granular invalidation. Overlay removal is handled
+	// separately by DrawOverlays; the trigger widget just redraws itself.
+	if ctx.IsInvalidated() {
+		t.Error("close should use granular invalidation, not ctx.Invalidate()")
+	}
+	if !w.NeedsRedraw() {
+		t.Error("close should set needsRedraw on the trigger widget")
 	}
 }

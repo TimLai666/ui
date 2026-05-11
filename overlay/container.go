@@ -51,6 +51,12 @@ func NewContainer(content widget.Widget, windowSize geometry.Size, opts ...Conta
 	}
 	c.SetVisible(true)
 	c.SetEnabled(true)
+	// Register content as child so tree walkers (dirty collector, hit test,
+	// Layer Tree builder) can discover it. Without this, Container.Children()
+	// returns nil and overlay content is invisible to dirty tracking.
+	if content != nil {
+		c.AddChild(content)
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
