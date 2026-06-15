@@ -614,15 +614,34 @@ func isBoundaryLayerVisible(pic *compositor.PictureLayerImpl, bw, bh int) bool {
 	return screenRect.Intersects(clip)
 }
 
+// scaleToPhysical converts logical pixel dimensions to physical pixels for the
+// given device scale, rounding to the nearest pixel. A scale <= 0 is treated as
+// 1.0 (headless / non-HiDPI).
+func scaleToPhysical(w, h int, scale float64) (int, int) {
+	if scale <= 0 {
+		scale = 1.0
+	}
+	return int(float64(w)*scale + 0.5), int(float64(h)*scale + 0.5)
+}
+
 // ensureBoundaryTexture allocates or resizes the offscreen texture for a boundary.
+//
+// HiDPI: bw/bh are LOGICAL widget bounds, but an offscreen texture is a GPU
+// surface that must be allocated in PHYSICAL pixels. The gg context renders at
+// DeviceScale, so a logical-sized texture clips the scene to its top-left
+// fraction and then gets upscaled at composite time — the "content rendered at
+// 2x" symptom on HiDPI/Retina displays (#129). Size to physical = logical *
+// DeviceScale; the composite step still positions in logical space (the gg
+// context applies the scale), so only allocation and flush need physical extents.
 func (rl *renderLoop) ensureBoundaryTexture(key uint64, bw, bh int, cc *gg.Context) *boundaryTexEntry {
+	pw, ph := scaleToPhysical(bw, bh, cc.DeviceScale())
 	entry := rl.boundaryTextures[key]
-	if entry == nil || entry.width != bw || entry.height != bh {
+	if entry == nil || entry.width != pw || entry.height != ph {
 		if entry != nil && entry.release != nil {
 			entry.release()
 		}
-		tex, release := cc.CreateOffscreenTexture(bw, bh)
-		entry = &boundaryTexEntry{texture: tex, release: release, width: bw, height: bh}
+		tex, release := cc.CreateOffscreenTexture(pw, ph)
+		entry = &boundaryTexEntry{texture: tex, release: release, width: pw, height: ph}
 		rl.boundaryTextures[key] = entry
 		rl.fullRedrawNeeded = true
 	}
@@ -649,7 +668,11 @@ func (rl *renderLoop) flushBoundaryToTexture(pic *compositor.PictureLayerImpl, e
 
 	renderer := scene.NewGPUSceneRenderer(cc)
 	_ = renderer.RenderScene(cachedScene)
-	w, h := uint32(max(bw, 0)), uint32(max(bh, 0)) //nolint:gosec // bw/bh checked > 0 above
+	// The flush viewport must match the PHYSICAL texture extent (logical *
+	// DeviceScale), else the scene — rendered at DeviceScale — is clipped to the
+	// logical-sized region and upscaled on composite (#129). See ensureBoundaryTexture.
+	pw, ph := scaleToPhysical(bw, bh, cc.DeviceScale())
+	w, h := uint32(max(pw, 0)), uint32(max(ph, 0)) //nolint:gosec // pw/ph derived from bw/bh checked > 0 above
 	if err := cc.FlushGPUWithView(entry.texture, w, h); err != nil {
 		log.Printf("desktop: FlushGPUWithView boundary %d: %v", pic.BoundaryCacheKey(), err)
 	}
