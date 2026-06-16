@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.33] — 2026-06-16
+
+### Fixed
+
+- **HiDPI/Retina 2× oversized rendering** ([#129](https://github.com/gogpu/ui/issues/129), [#133](https://github.com/gogpu/ui/pull/133), @TimLai666) — per-boundary offscreen GPU textures were allocated in logical pixels while gg.Context renders at DeviceScale. On Retina (scale=2.0), textures were half-size: scene clipped to top-left quarter, then upscaled. Fix: allocate at physical pixels (`logical × DeviceScale`), new `scaleToPhysical` helper. Confirmed on macOS Retina by @lkmavi. Validated against 6 enterprise frameworks (Flutter, Chrome, Skia, Qt6, Android, Vello) — all allocate offscreen textures in physical pixels.
+
 ## [0.1.32] — 2026-06-16
 
 ### Dependencies
