@@ -56,13 +56,6 @@ func (c *config) ResolvedSelected() bool {
 	return c.selected
 }
 
-// selectedIsDynamic reports whether the selected state is driven by an
-// external source (function or signal). When false, the chip owns its
-// selected state and may toggle it directly (uncontrolled mode).
-func (c *config) selectedIsDynamic() bool {
-	return c.readonlySelectedSignal != nil || c.selectedSignal != nil || c.selectedFn != nil
-}
-
 // ResolvedDisabled returns the current disabled state.
 // Priority: ReadonlySignal > Signal > Fn > Static.
 func (c *config) ResolvedDisabled() bool {

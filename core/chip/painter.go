@@ -17,6 +17,7 @@ type PaintState struct {
 	Label       string          // chip label text
 	Bounds      geometry.Rect   // total widget bounds (excludes outer padding)
 	Radius      float32         // corner radius
+	FontSize    float32         // label font size in logical pixels (0 = painter default)
 	Selectable  bool            // chip toggles a selected state
 	Selected    bool            // chip is currently selected
 	Hovered     bool            // pointer is over the chip
@@ -65,7 +66,11 @@ func (p DefaultPainter) PaintChip(canvas widget.Canvas, ps PaintState) {
 	}
 
 	if ps.Label != "" {
-		canvas.DrawText(ps.Label, bounds, defaultFontSize, labelColor, false, widget.TextAlignCenter)
+		fontSize := ps.FontSize
+		if fontSize <= 0 {
+			fontSize = defaultFontSize
+		}
+		canvas.DrawText(ps.Label, bounds, fontSize, labelColor, false, widget.TextAlignCenter)
 	}
 
 	if ps.Focused && !ps.Disabled {

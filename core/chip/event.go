@@ -108,10 +108,9 @@ func handleActivationKey(w *Widget, e *event.KeyEvent) bool {
 func activate(w *Widget) {
 	if w.cfg.selectable {
 		newSel := !w.cfg.ResolvedSelected()
-		// Uncontrolled mode: own the selected state when no dynamic source.
-		if !w.cfg.selectedIsDynamic() {
-			w.cfg.selected = newSel
-		}
+		// Two-way: write back to the bound signal (or static field) so the
+		// chip's rendered state stays in sync after the click.
+		w.applySelected(newSel)
 		if w.cfg.onSelectedChanged != nil {
 			w.cfg.onSelectedChanged(newSel)
 		}

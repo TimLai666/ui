@@ -233,12 +233,38 @@ func TestSetSelected_Uncontrolled(t *testing.T) {
 	}
 }
 
-func TestSetSelected_ControlledNoOp(t *testing.T) {
+func TestSetSelected_WritesBackToSignal(t *testing.T) {
 	sig := state.NewSignal(false)
 	c := chip.New(chip.Selectable(true), chip.SelectedSignal(sig))
 	c.SetSelected(true)
+	if !sig.Get() {
+		t.Error("SetSelected should write back to a bound SelectedSignal")
+	}
+	if !c.Selected() {
+		t.Error("Selected() should reflect the written-back signal value")
+	}
+}
+
+func TestSetSelected_SameValueNoOp(t *testing.T) {
+	c := chip.New(chip.Selectable(true))
+	c.SetSelected(false) // already false -> early return, no change
 	if c.Selected() {
-		t.Error("SetSelected should be a no-op when selection is signal-controlled")
+		t.Error("SetSelected(false) on an unselected chip should be a no-op")
+	}
+}
+
+func TestSetSelected_ReadonlySourceNoOp(t *testing.T) {
+	roSig := state.NewSignal(false)
+	c := chip.New(chip.Selectable(true), chip.SelectedReadonlySignal(roSig))
+	c.SetSelected(true)
+	if c.Selected() {
+		t.Error("SetSelected must not change a read-only selected source")
+	}
+
+	cFn := chip.New(chip.Selectable(true), chip.SelectedFn(func() bool { return false }))
+	cFn.SetSelected(true)
+	if cFn.Selected() {
+		t.Error("SetSelected must not change a function-driven selected source")
 	}
 }
 
@@ -280,20 +306,40 @@ func TestClick_FilterChipTogglesAndNotifies(t *testing.T) {
 	}
 }
 
-func TestClick_FilterControlledDoesNotMutateLocal(t *testing.T) {
+func TestClick_FilterSignalWriteBack(t *testing.T) {
 	sig := state.NewSignal(false)
+	c := chip.New(chip.Selectable(true), chip.SelectedSignal(sig))
+	c.SetBounds(geometry.NewRect(0, 0, 80, 32))
+
+	uitest.SimulateClick(c, 10, 10)
+	if !sig.Get() {
+		t.Error("clicking a SelectedSignal-bound chip should write back to the signal")
+	}
+	if !c.Selected() {
+		t.Error("chip should render as selected after write-back")
+	}
+
+	uitest.SimulateClick(c, 10, 10)
+	if sig.Get() {
+		t.Error("a second click should toggle the signal back to false")
+	}
+}
+
+func TestClick_FilterReadonlyControlled(t *testing.T) {
+	// A read-only source: the chip cannot write, but must still report the
+	// intended new value via OnSelectedChanged so the owner can update state.
+	roSig := state.NewSignal(false)
 	var notified bool
-	c := chip.New(chip.Selectable(true), chip.SelectedSignal(sig),
+	c := chip.New(chip.Selectable(true), chip.SelectedReadonlySignal(roSig),
 		chip.OnSelectedChanged(func(sel bool) { notified = sel }))
 	c.SetBounds(geometry.NewRect(0, 0, 80, 32))
 
 	uitest.SimulateClick(c, 10, 10)
 	if !notified {
-		t.Error("OnSelectedChanged should report new state true")
+		t.Error("OnSelectedChanged should report the intended new state (true)")
 	}
-	// Controlled: local state stays in sync with the (unchanged) signal.
 	if c.Selected() {
-		t.Error("controlled chip should not flip local state; owner updates the signal")
+		t.Error("read-only controlled chip must not flip its own state")
 	}
 }
 
@@ -396,6 +442,46 @@ func TestDefaultPainter_EmptyBoundsNoOp(t *testing.T) {
 	chip.DefaultPainter{}.PaintChip(canvas, chip.PaintState{Label: "x"})
 	if canvas.TotalDrawCalls() != 0 {
 		t.Errorf("empty bounds draw calls = %d, want 0", canvas.TotalDrawCalls())
+	}
+}
+
+func TestDraw_UsesDefaultFontSize(t *testing.T) {
+	canvas := drawAt(chip.New(chip.Label("Tag")))
+	if len(canvas.Texts) != 1 {
+		t.Fatalf("texts = %d, want 1", len(canvas.Texts))
+	}
+	if canvas.Texts[0].FontSize != 14 {
+		t.Errorf("font size = %v, want 14 (default)", canvas.Texts[0].FontSize)
+	}
+}
+
+func TestDefaultPainter_RespectsFontSize(t *testing.T) {
+	canvas := &uitest.MockCanvas{}
+	chip.DefaultPainter{}.PaintChip(canvas, chip.PaintState{
+		Label:    "x",
+		Bounds:   geometry.NewRect(0, 0, 40, 20),
+		FontSize: 22,
+	})
+	if len(canvas.Texts) != 1 {
+		t.Fatalf("texts = %d, want 1", len(canvas.Texts))
+	}
+	if canvas.Texts[0].FontSize != 22 {
+		t.Errorf("font size = %v, want 22 (explicit)", canvas.Texts[0].FontSize)
+	}
+}
+
+func TestDefaultPainter_FontSizeFallback(t *testing.T) {
+	canvas := &uitest.MockCanvas{}
+	chip.DefaultPainter{}.PaintChip(canvas, chip.PaintState{
+		Label:  "x",
+		Bounds: geometry.NewRect(0, 0, 40, 20),
+		// FontSize left 0 -> painter falls back to its default.
+	})
+	if len(canvas.Texts) != 1 {
+		t.Fatalf("texts = %d, want 1", len(canvas.Texts))
+	}
+	if canvas.Texts[0].FontSize != 14 {
+		t.Errorf("font size = %v, want 14 (fallback)", canvas.Texts[0].FontSize)
 	}
 }
 

@@ -82,15 +82,31 @@ func (w *Widget) Selected() bool {
 	return w.cfg.ResolvedSelected()
 }
 
-// SetSelected updates the chip's selected state (uncontrolled mode).
-// It has no effect when the selected state is bound to a function or signal.
+// SetSelected updates the chip's selected state.
+//
+// If a writable [SelectedSignal] is bound, the new value is written back to it
+// (two-way binding). With only a static value, the chip's own state is updated.
+// When the selected state is driven by a read-only source ([SelectedFn] or
+// [SelectedReadonlySignal]), this is a no-op: the owner controls that source.
 func (w *Widget) SetSelected(sel bool) {
-	if w.cfg.selectedIsDynamic() {
+	if w.cfg.ResolvedSelected() == sel {
 		return
 	}
-	if w.cfg.selected != sel {
+	w.applySelected(sel)
+	w.SetNeedsRedraw(true)
+}
+
+// applySelected writes the new selected state to the appropriate writable
+// source: the bound [SelectedSignal] if present, otherwise the static field.
+// A [SelectedFn] or [SelectedReadonlySignal] source is read-only, so the chip
+// leaves it untouched and relies on the owner to update it.
+func (w *Widget) applySelected(sel bool) {
+	if w.cfg.selectedSignal != nil {
+		w.cfg.selectedSignal.Set(sel)
+		return
+	}
+	if w.cfg.selectedFn == nil && w.cfg.readonlySelectedSignal == nil {
 		w.cfg.selected = sel
-		w.SetNeedsRedraw(true)
 	}
 }
 
@@ -117,6 +133,7 @@ func (w *Widget) Draw(_ widget.Context, canvas widget.Canvas) {
 		Label:       w.cfg.ResolvedLabel(),
 		Bounds:      w.contentBounds(),
 		Radius:      defaultChipRadius,
+		FontSize:    defaultFontSize,
 		Selectable:  w.cfg.selectable,
 		Selected:    w.cfg.ResolvedSelected(),
 		Hovered:     w.state == stateHover,

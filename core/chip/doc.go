@@ -21,12 +21,17 @@
 //     and invokes [OnSelectedChanged]. The chip renders a filled background
 //     when selected and an outlined background when not.
 //
-// # Controlled vs uncontrolled selection
+// # Selection write-back
 //
-// When [Selected] is bound to a function or signal, the chip is "controlled":
-// the owner is responsible for updating that source in response to
-// [OnSelectedChanged]. With only a static initial value, the chip is
-// "uncontrolled" and toggles its own internal state on activation.
+// On activation a selectable chip toggles its selected state and writes the
+// new value back to the appropriate source, matching the checkbox widget:
+//
+//   - With a writable [SelectedSignal], the new value is written to the signal
+//     (two-way binding).
+//   - With only a static value, the chip updates its own internal state.
+//   - With a read-only source ([SelectedFn] or [SelectedReadonlySignal]), the
+//     chip leaves the source untouched; the owner is responsible for updating
+//     it in response to [OnSelectedChanged].
 //
 // # Visual Style
 //
