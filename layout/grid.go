@@ -1,11 +1,37 @@
 package layout
 
 import (
+	"sync"
+
 	"github.com/gogpu/ui/geometry"
 )
 
 // gridLayoutName is the constant name for grid layout.
 const gridLayoutName = "grid"
+
+var gridCellPool = sync.Pool{
+	New: func() any {
+		s := make([]gridCell, 0, 8)
+		return &s
+	},
+}
+
+func getGridCells(n int) (*[]gridCell, []gridCell) {
+	p := gridCellPool.Get().(*[]gridCell)
+	s := *p
+	if cap(s) < n {
+		s = make([]gridCell, n)
+	} else {
+		s = s[:n]
+	}
+	*p = s
+	return p, s
+}
+
+func putGridCells(p *[]gridCell) {
+	*p = (*p)[:0]
+	gridCellPool.Put(p)
+}
 
 // GridTrackSizing specifies how a grid track (row or column) is sized.
 type GridTrackSizing int
@@ -77,7 +103,10 @@ func (g *GridLayout) Compute(tree LayoutTree, root NodeID, available geometry.Si
 	}
 
 	columns := g.getColumns()
-	cells, maxRow := g.buildCells(tree, root, childCount, len(columns))
+	cellsPtr, cells := getGridCells(childCount)
+	defer putGridCells(cellsPtr)
+
+	maxRow := g.buildCells(cells, tree, root, childCount, len(columns))
 	rows := g.buildRows(maxRow)
 
 	columnSizes := g.calculateTrackSizes(columns, available.Width, g.ColumnGap)
@@ -105,8 +134,7 @@ func (g *GridLayout) getColumns() []GridTrack {
 }
 
 // buildCells creates grid cells for each child and determines max row count.
-func (g *GridLayout) buildCells(tree LayoutTree, root NodeID, childCount, numColumns int) ([]gridCell, int) {
-	cells := make([]gridCell, childCount)
+func (g *GridLayout) buildCells(cells []gridCell, tree LayoutTree, root NodeID, childCount, numColumns int) int {
 	maxRow := 0
 	for i := 0; i < childCount; i++ {
 		row := i / numColumns
@@ -122,7 +150,7 @@ func (g *GridLayout) buildCells(tree LayoutTree, root NodeID, childCount, numCol
 			maxRow = row + 1
 		}
 	}
-	return cells, maxRow
+	return maxRow
 }
 
 // buildRows ensures we have enough row definitions for all cells.

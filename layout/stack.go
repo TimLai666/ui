@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"sync"
+
 	"github.com/gogpu/ui/geometry"
 )
 
@@ -16,6 +18,30 @@ const (
 	stackHStackStr = "hstack"
 	stackZStackStr = "zstack"
 )
+
+var stackItemPool = sync.Pool{
+	New: func() any {
+		s := make([]stackItem, 0, 8)
+		return &s
+	},
+}
+
+func getStackItems(n int) (*[]stackItem, []stackItem) {
+	p := stackItemPool.Get().(*[]stackItem)
+	s := *p
+	if cap(s) < n {
+		s = make([]stackItem, n)
+	} else {
+		s = s[:n]
+	}
+	*p = s
+	return p, s
+}
+
+func putStackItems(p *[]stackItem) {
+	*p = (*p)[:0]
+	stackItemPool.Put(p)
+}
 
 // StackDirection specifies the direction for stack layouts.
 type StackDirection int
@@ -116,7 +142,9 @@ func (s *StackLayout) computeVStack(tree LayoutTree, root NodeID, available geom
 	totalSpacing := s.Spacing * float32(numGaps)
 
 	// Phase 1: Measure all children
-	children := make([]stackItem, childCount)
+	childrenPtr, children := getStackItems(childCount)
+	defer putStackItems(childrenPtr)
+
 	var totalHeight float32
 	var maxWidth float32
 
@@ -196,7 +224,9 @@ func (s *StackLayout) computeHStack(tree LayoutTree, root NodeID, available geom
 	totalSpacing := s.Spacing * float32(numGaps)
 
 	// Phase 1: Measure all children
-	children := make([]stackItem, childCount)
+	childrenPtr, children := getStackItems(childCount)
+	defer putStackItems(childrenPtr)
+
 	var totalWidth float32
 	var maxHeight float32
 
@@ -339,7 +369,9 @@ func computeZStackCommon(tree LayoutTree, root NodeID, available geometry.Size, 
 	}
 
 	// Phase 1: Measure all children
-	children := make([]stackItem, childCount)
+	childrenPtr, children := getStackItems(childCount)
+	defer putStackItems(childrenPtr)
+
 	var maxWidth, maxHeight float32
 
 	for i := 0; i < childCount; i++ {

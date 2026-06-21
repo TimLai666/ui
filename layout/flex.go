@@ -1,11 +1,37 @@
 package layout
 
 import (
+	"sync"
+
 	"github.com/gogpu/ui/geometry"
 )
 
 // flexLayoutName is the constant name for flex layout.
 const flexLayoutName = "flex"
+
+var flexItemPool = sync.Pool{
+	New: func() any {
+		s := make([]flexItem, 0, 8)
+		return &s
+	},
+}
+
+func getFlexItems(n int) (*[]flexItem, []flexItem) {
+	p := flexItemPool.Get().(*[]flexItem)
+	s := *p
+	if cap(s) < n {
+		s = make([]flexItem, n)
+	} else {
+		s = s[:n]
+	}
+	*p = s
+	return p, s
+}
+
+func putFlexItems(p *[]flexItem) {
+	*p = (*p)[:0]
+	flexItemPool.Put(p)
+}
 
 // FlexLayout implements CSS Flexbox-style layout.
 //
@@ -48,7 +74,9 @@ func (f *FlexLayout) Compute(tree LayoutTree, root NodeID, available geometry.Si
 	mainMax, crossMax := f.getAxisSizes(available, isHorizontal)
 
 	// Collect children and measure them
-	items := make([]flexItem, childCount)
+	itemsPtr, items := getFlexItems(childCount)
+	defer putFlexItems(itemsPtr)
+
 	for i := 0; i < childCount; i++ {
 		childID := tree.ChildAt(root, i)
 		childStyle := tree.Style(childID)
