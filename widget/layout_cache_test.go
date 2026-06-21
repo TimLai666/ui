@@ -176,6 +176,11 @@ func TestMarkNeedsLayout_StopsAtNonWidgetBaseAncestor(t *testing.T) {
 func TestMarkNeedsLayout_MarksPaintSelfOnly(t *testing.T) {
 	parent, child := newWB(), newWB()
 	child.SetParent(parent)
+	ctx := uitest.NewMockContext()
+	c := looseConstraints()
+	// A valid cache is the "clean" marker the guard checks, so lay both out first.
+	widget.LayoutChild(parent, ctx, c)
+	widget.LayoutChild(child, ctx, c)
 	parent.SetNeedsRedraw(false)
 	child.SetNeedsRedraw(false)
 
@@ -185,7 +190,10 @@ func TestMarkNeedsLayout_MarksPaintSelfOnly(t *testing.T) {
 		t.Error("MarkNeedsLayout should mark the widget itself paint-dirty")
 	}
 	if parent.NeedsRedraw() {
-		t.Error("GAP-1: MarkNeedsLayout must NOT propagate paint dirtiness to the parent")
+		t.Error("GAP-1: the upward walk must clear the parent's cache but NOT mark it paint-dirty")
+	}
+	if parent.IsLayoutCacheValid() {
+		t.Error("the parent's layout cache should be invalidated (its size depends on the child)")
 	}
 }
 
@@ -215,17 +223,67 @@ func TestLayoutChild_CacheHitDoesNotMarkPaint(t *testing.T) {
 func TestOnLayoutDirty_FiresWhenInvalidationReachesRoot(t *testing.T) {
 	root, child := newWB(), newWB()
 	child.SetParent(root)
+	ctx := uitest.NewMockContext()
+	c := looseConstraints()
 	fired := 0
 	root.SetOnLayoutDirty(func() { fired++ })
 
-	child.MarkNeedsLayout()
+	widget.LayoutChild(root, ctx, c)
+	widget.LayoutChild(child, ctx, c)
+
+	child.MarkNeedsLayout() // propagates to root → fires once
 	if fired != 1 {
 		t.Errorf("onLayoutDirty fired %d times, want 1 (reached root via propagation)", fired)
 	}
 
-	root.MarkNeedsLayout()
+	widget.LayoutChild(root, ctx, c) // re-validate root (it was invalidated above)
+	root.MarkNeedsLayout()           // root invalidating itself → fires once
 	if fired != 2 {
 		t.Errorf("onLayoutDirty fired %d times, want 2 (root invalidating itself)", fired)
+	}
+}
+
+func TestMarkNeedsLayout_SelfGuardIsIdempotent(t *testing.T) {
+	root := newWB()
+	ctx := uitest.NewMockContext()
+	c := looseConstraints()
+	fired := 0
+	root.SetOnLayoutDirty(func() { fired++ })
+
+	widget.LayoutChild(root, ctx, c)
+	root.MarkNeedsLayout() // valid → fires, invalidates
+	root.MarkNeedsLayout() // already invalid → no-op
+	if fired != 1 {
+		t.Errorf("onLayoutDirty fired %d times, want 1 (second call is a no-op)", fired)
+	}
+}
+
+func TestMarkNeedsLayout_SiblingBatchFiresRootOnce(t *testing.T) {
+	// root → box → {c1, c2}. Invalidating both children in a batch must fire the
+	// root callback exactly once; the second child short-circuits at box.
+	root, box, c1, c2 := newWB(), newWB(), newWB(), newWB()
+	box.SetParent(root)
+	c1.SetParent(box)
+	c2.SetParent(box)
+	ctx := uitest.NewMockContext()
+	cc := looseConstraints()
+	fired := 0
+	root.SetOnLayoutDirty(func() { fired++ })
+
+	for _, w := range []*clwWidget{root, box, c1, c2} {
+		widget.LayoutChild(w, ctx, cc)
+	}
+
+	c1.MarkNeedsLayout() // full walk c1→box→root, fires once
+	c2.MarkNeedsLayout() // box already invalid → stops, no extra fire
+
+	if fired != 1 {
+		t.Errorf("onLayoutDirty fired %d times, want 1 (sibling batch coalesces)", fired)
+	}
+	for _, w := range []*clwWidget{box, c1, c2} {
+		if w.IsLayoutCacheValid() {
+			t.Error("all invalidated nodes should have cleared caches")
+		}
 	}
 }
 
