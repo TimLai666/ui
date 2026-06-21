@@ -45,7 +45,7 @@ func (p DefaultPainter) PaintBadge(canvas widget.Canvas, ps PaintState) {
 
 	if ps.Dot {
 		// Bounds is non-empty here, so both dimensions are positive.
-		radius := minF32(bounds.Width(), bounds.Height()) / 2
+		radius := min(bounds.Width(), bounds.Height()) / 2
 		center := geometry.Pt(
 			bounds.Min.X+bounds.Width()/2,
 			bounds.Min.Y+bounds.Height()/2,
@@ -90,13 +90,6 @@ func resolveLabelColor(ps PaintState, hasScheme bool) widget.Color {
 		return ps.ColorScheme.Label
 	}
 	return defaultLabel
-}
-
-func minF32(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // defaultMax is the count threshold above which the badge renders "N+".
