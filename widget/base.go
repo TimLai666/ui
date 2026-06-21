@@ -89,6 +89,17 @@ type WidgetBase struct {
 	// (e.g., ListView items scrolled outside ScrollView bounds).
 	compositorClip    geometry.Rect
 	hasCompositorClip bool
+
+	// --- Layout cache (ADR-032 Phase 1) ---
+	// Caches the most recent Layout() result keyed by the input constraints so
+	// an unchanged subtree is not re-measured on every relayout pass. This is
+	// the layout-side analog of the RepaintBoundary scene cache above (the
+	// distributed-cache pattern used by Flutter/Android/Qt). The cache is read
+	// and written by [LayoutChild] and invalidated by [WidgetBase.MarkNeedsLayout].
+	layoutCacheValid bool
+	lastConstraints  geometry.Constraints
+	lastSize         geometry.Size
+	onLayoutDirty    func() // Fires when layout invalidation reaches this node (root → Window)
 }
 
 // NewWidgetBase creates a new WidgetBase with default settings.

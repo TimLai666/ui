@@ -316,6 +316,22 @@ func (w *Window) SetRoot(root widget.Widget) {
 		be.SetRepaintBoundary(true)
 	}
 
+	// ADR-032 Phase 1: wire the layout-dirty callback on the root, symmetric
+	// with onBoundaryDirty. When a descendant's MarkNeedsLayout invalidation
+	// propagates up to the root, the Window schedules a layout pass. This is
+	// inert until containers/widgets adopt LayoutChild/MarkNeedsLayout.
+	type layoutDirtyWirer interface {
+		SetOnLayoutDirty(func())
+	}
+	if lw, ok := root.(layoutDirtyWirer); ok {
+		lw.SetOnLayoutDirty(func() {
+			w.needsLayout = true
+			if w.wp != nil {
+				w.wp.RequestRedraw()
+			}
+		})
+	}
+
 	w.needsLayout = true
 	w.needsRedraw = true
 	w.needsFullRepaint = true
