@@ -25,6 +25,9 @@ Before doing any work, the render loop checks:
 
 ```go
 needsAnyWork := rl.fullRedrawNeeded || win.NeedsRedraw() || win.HasDirtyBoundaries() || win.NeedsAnimationFrame()
+// Debug overlays also count — their fade animation needs frames.
+if isDebugDirtyEnabled() && debugOverlay.needsAnimationFrame() { needsAnyWork = true }
+if isDebugDamageEnabled() && canvas.NeedsAnimationFrame() { needsAnyWork = true }
 if !needsAnyWork {
     return  // nothing changed — 0% GPU
 }
@@ -68,7 +71,7 @@ Done BEFORE PaintBoundaryLayers because that step clears `NeedsRedraw` flags. Th
 PaintBoundaryLayersWithContext(root, nil, ctx)
 ```
 
-Walks the flat dirty boundary set. Each dirty boundary re-records its `scene.Scene` display list via `SceneCanvas`. Clean boundaries are skipped entirely.
+Recursively walks the widget tree (`paintBoundaryWithDepth`). Each dirty+visible boundary re-records its `scene.Scene` display list via `SceneCanvas`. Clean boundaries are skipped entirely. The flat dirty set (`HasDirtyBoundaries`) is used for O(1) frame skip only, not for the paint walk.
 
 **DrawChild skip pattern:** During recording, child boundaries are SKIPPED — they have their own GPU textures. The parent scene contains only non-boundary children (text, backgrounds, dividers).
 
@@ -121,6 +124,7 @@ Walks the Layer Tree again. Blits all boundary textures onto the surface via non
 ```
 DrawOverlayScrim()               // modal backdrop only (non-modal = no scrim)
 debugOverlay.draw()              // cyan flash on dirty widgets (GOGPU_DEBUG_DIRTY=1)
+// Both overlays request frames for fade animation via RequestRedraw()
 ```
 
 ### Step 10: Present
@@ -199,7 +203,8 @@ GOGPU_DAMAGE_BLIT=0 go run ./examples/gallery/
 | Scenario | GPU Work |
 |----------|----------|
 | Static UI (no interaction) | 0% — frame skip |
-| Hover over button | Root re-record + blit (1 boundary) |
+| Hover over button | Button boundary re-record + blit (root NOT re-recorded) |
+| Hover over ListView item | Item decorator boundary re-record (1 of N items, root clean) |
 | Spinner animating | 48×48 scissor blit at 30fps |
 | Spinner scrolled offscreen | 0% — boundary culled |
 | Dropdown open | Overlay boundary + scrim |
@@ -232,6 +237,26 @@ GOGPU_DAMAGE_BLIT=0 go run ./examples/gallery/
 | `internal/render/scene_canvas.go` | SceneCanvas (scene.Scene recorder) |
 | `internal/dirty/collector.go` | Dirty region collection + merge |
 
+## ListView Item Decorator
+
+ListView items are wrapped in `itemDecorator` — an internal widget that IS the RepaintBoundary. The decorator owns hover/selection painting inside its own boundary scene:
+
+```
+virtualContent.Draw()
+  for each item:
+    DrawChild(decorator)           // SKIPPED (boundary)
+    PaintDivider()                 // structural, stays in parent
+
+decorator.Draw()                   // own scene
+  PaintItemBackground()            // hover/selection here
+  PaintSelection()
+  child.Draw()                     // user widget content
+```
+
+On hover change, only the affected decorator re-records (1 of N items). Root stays clean.
+
+During scroll, `incrementalUpdate` reuses decorators for overlapping items. Only edge items (entering viewport) get new decorators. RecyclerView/Flutter SliverList pattern.
+
 ---
 
-*v0.1.26 — May 2026*
+*v0.1.35 — June 2026*
