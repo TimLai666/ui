@@ -493,10 +493,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 	}
 
 	if w.cfg.readonlyRowCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyRowCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyRowCountSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.rowCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.rowCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.rowCountSignal, w, sched)
 		w.AddBinding(b)
 	}
 
@@ -989,8 +989,8 @@ func (w *Widget) handleHeaderMousePress(ctx widget.Context, e *event.MouseEvent,
 	}
 
 	ctx.RequestFocus(w)
-	// ADR-028: layout change — sort reorders rows, may change content.
-	ctx.Invalidate()
+	// ADR-032: layout change — sort reorders rows, may change content.
+	w.MarkNeedsLayout()
 	return true
 }
 

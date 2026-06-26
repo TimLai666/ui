@@ -227,10 +227,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 
 	// Bind item count signals.
 	if w.cfg.readonlyItemCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyItemCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyItemCountSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.itemCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.itemCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.itemCountSignal, w, sched)
 		w.AddBinding(b)
 	}
 

@@ -186,9 +186,9 @@ func (w *Widget) Mount(ctx widget.Context) {
 		return
 	}
 	if w.cfg.readonlyLabelSignal != nil {
-		w.AddBinding(state.BindToScheduler(w.cfg.readonlyLabelSignal, w, sched))
+		w.AddBinding(state.BindToSchedulerLayout(w.cfg.readonlyLabelSignal, w, sched))
 	} else if w.cfg.labelSignal != nil {
-		w.AddBinding(state.BindToScheduler(w.cfg.labelSignal, w, sched))
+		w.AddBinding(state.BindToSchedulerLayout(w.cfg.labelSignal, w, sched))
 	}
 	if w.cfg.readonlySelectedSignal != nil {
 		w.AddBinding(state.BindToScheduler(w.cfg.readonlySelectedSignal, w, sched))

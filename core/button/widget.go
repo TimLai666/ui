@@ -153,10 +153,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 		return
 	}
 	if w.cfg.readonlyTextSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyTextSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyTextSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.textSignal != nil {
-		b := state.BindToScheduler(w.cfg.textSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.textSignal, w, sched)
 		w.AddBinding(b)
 	}
 	if w.cfg.readonlyDisabledSignal != nil {

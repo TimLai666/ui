@@ -299,10 +299,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 		w.AddBinding(b)
 	}
 	if w.cfg.readonlyExpandedSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyExpandedSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyExpandedSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.expandedSignal != nil {
-		b := state.BindToScheduler(w.cfg.expandedSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.expandedSignal, w, sched)
 		w.AddBinding(b)
 	}
 }

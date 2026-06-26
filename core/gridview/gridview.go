@@ -548,10 +548,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 
 	// Bind item count signals.
 	if w.cfg.readonlyItemCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyItemCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyItemCountSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.itemCountSignal != nil {
-		b := state.BindToScheduler(w.cfg.itemCountSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.itemCountSignal, w, sched)
 		w.AddBinding(b)
 	}
 
@@ -575,10 +575,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 
 	// Bind columns signals.
 	if w.cfg.readonlyColumnsSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyColumnsSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyColumnsSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.columnsSignal != nil {
-		b := state.BindToScheduler(w.cfg.columnsSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.columnsSignal, w, sched)
 		w.AddBinding(b)
 	}
 

@@ -144,10 +144,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 		w.AddBinding(b)
 	}
 	if w.cfg.readonlyLabelSig != nil {
-		b := state.BindToScheduler(w.cfg.readonlyLabelSig, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyLabelSig, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.labelSignal != nil {
-		b := state.BindToScheduler(w.cfg.labelSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.labelSignal, w, sched)
 		w.AddBinding(b)
 	}
 	if w.cfg.readonlyDisabledSig != nil {

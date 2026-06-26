@@ -654,9 +654,8 @@ func (w *Widget) setRatio(ctx widget.Context, ratio float32) {
 		w.cfg.onRatioChange(ratio)
 	}
 
-	w.SetNeedsRedraw(true)
-	// ADR-028: layout change — ratio change resizes child panels.
-	ctx.Invalidate()
+	// ADR-032: layout change — ratio change resizes child panels.
+	w.MarkNeedsLayout()
 }
 
 // effectiveRatio returns the current ratio, accounting for collapsed state.
@@ -734,10 +733,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 		return
 	}
 	if w.cfg.readonlyRatioSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyRatioSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyRatioSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.ratioSignal != nil {
-		b := state.BindToScheduler(w.cfg.ratioSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.ratioSignal, w, sched)
 		w.AddBinding(b)
 	}
 }

@@ -471,8 +471,8 @@ func (h *Host) handleTabPress(ctx widget.Context, me *event.MouseEvent) bool {
 			ts := &h.tabStates[z][i]
 			if ts.Bounds.Contains(me.Position) {
 				h.zones[z].activeIdx = i
-				// ADR-028: layout change — active panel switch changes zone content.
-				ctx.Invalidate()
+				// ADR-032: layout change — active panel switch changes zone content.
+				h.MarkNeedsLayout()
 				return true
 			}
 		}
@@ -543,8 +543,8 @@ func (h *Host) closePanel(ctx widget.Context, z Zone, idx int) {
 		h.cfg.onPanelClose(panel, z)
 	}
 
-	// ADR-028: layout change — panel removed, zone layout changes.
-	ctx.Invalidate()
+	// ADR-032: layout change — panel removed, zone layout changes.
+	h.MarkNeedsLayout()
 }
 
 // updateTabStates refreshes tab states for a zone from the current panels.

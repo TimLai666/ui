@@ -203,10 +203,10 @@ func (w *Widget) Mount(ctx widget.Context) {
 
 	// Bind root signals.
 	if w.cfg.readonlyRootSignal != nil {
-		b := state.BindToScheduler(w.cfg.readonlyRootSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.readonlyRootSignal, w, sched)
 		w.AddBinding(b)
 	} else if w.cfg.rootSignal != nil {
-		b := state.BindToScheduler(w.cfg.rootSignal, w, sched)
+		b := state.BindToSchedulerLayout(w.cfg.rootSignal, w, sched)
 		w.AddBinding(b)
 	}
 
@@ -457,8 +457,8 @@ func (w *Widget) toggleNode(ctx widget.Context, node *TreeNode) {
 		w.cfg.onToggle(node, node.Expanded)
 	}
 
-	// ADR-028: layout change — expand/collapse changes row count and tree height.
-	ctx.Invalidate()
+	// ADR-032: layout change — expand/collapse changes row count and tree height.
+	w.MarkNeedsLayout()
 }
 
 // buildConnectorState builds the connector state for the row at index i.

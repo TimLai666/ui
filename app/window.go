@@ -559,14 +559,17 @@ func (w *Window) Frame() {
 	if w.needsLayout {
 		ui.Logger().Info("[LAYOUT-TRIGGER]")
 		layoutStart := time.Now()
+		// Clear before layout so both ctx.Invalidate() and MarkNeedsLayout()
+		// can re-set it during layout (animation ticks). The respective
+		// callbacks (onInvalidate, onLayoutDirty) set w.needsLayout = true.
+		w.needsLayout = false
 		w.layout()
 		layoutDur = time.Since(layoutStart)
-		// Clear needsLayout only if no widget re-invalidated during layout.
-		// Animations call ctx.Invalidate() from tickAnimation() during layout,
-		// which sets needsLayout back to true — we must not clobber that.
-		if !w.ctx.IsInvalidated() {
-			w.needsLayout = false
-		}
+		// ADR-032: mark all widgets layout-clean so MarkNeedsLayout()'s
+		// idempotency guard works before LayoutChild activates per-widget
+		// caching. Redundant once LayoutChild is adopted (layoutCacheStore
+		// handles the lifecycle).
+		widget.MarkLayoutCleanRecursive(w.root)
 		// Layout completed — widgets with changed positions need redraw.
 		// ADR-028: do NOT MarkRedrawInTree(root) — that marks ALL widgets
 		// dirty → full screen repaint. Only widgets that actually changed

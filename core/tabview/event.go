@@ -54,8 +54,8 @@ func handleMousePress(w *Widget, ctx widget.Context, e *event.MouseEvent) bool {
 			if w.cfg.onClose != nil {
 				w.cfg.onClose(i)
 			}
-			// ADR-028: layout change — tab removal changes tab strip layout.
-			ctx.Invalidate()
+			// ADR-032: layout change — tab removal changes tab strip layout.
+			w.MarkNeedsLayout()
 			return true
 		}
 	}
@@ -194,6 +194,6 @@ func (w *Widget) selectTab(ctx widget.Context, idx int) {
 	if w.cfg.onSelect != nil {
 		w.cfg.onSelect(idx)
 	}
-	// ADR-028: layout change — tab switch changes content panel.
-	ctx.Invalidate()
+	// ADR-032: layout change — tab switch changes content panel.
+	w.MarkNeedsLayout()
 }
