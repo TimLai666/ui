@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **linechart Painter** — `PaintChart(canvas, bounds, state)` → `PaintChart(canvas, state)` with Bounds in PaintState.
 - **progressbar PaintState** — `ProgressBarColorScheme` field renamed to `ColorScheme`.
 
+### Dependencies
+
+- gg v0.48.16 → v0.49.0
+- gogpu v0.42.6 → v0.42.8
+- wgpu v0.30.3 → v0.30.5
+
 ### Removed
 
 - 4 duplicate `maskText` functions (one per theme painter — now single in core)
