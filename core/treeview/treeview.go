@@ -444,7 +444,7 @@ func (w *Widget) setSelectedNodeID(ctx widget.Context, id string) {
 }
 
 // toggleNode toggles the expanded state of the given node.
-func (w *Widget) toggleNode(ctx widget.Context, node *TreeNode) {
+func (w *Widget) toggleNode(node *TreeNode) {
 	if node.IsLeaf() {
 		return
 	}

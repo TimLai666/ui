@@ -428,7 +428,7 @@ func (h *Host) handleZoneTabEvents(ctx widget.Context, e event.Event) bool {
 
 	switch me.MouseType {
 	case event.MousePress:
-		return h.handleTabPress(ctx, me)
+		return h.handleTabPress(me)
 	case event.MouseMove:
 		return h.handleTabMove(ctx, me)
 	case event.MouseLeave:
@@ -439,7 +439,7 @@ func (h *Host) handleZoneTabEvents(ctx widget.Context, e event.Event) bool {
 }
 
 // handleTabPress handles mouse clicks on zone tab headers.
-func (h *Host) handleTabPress(ctx widget.Context, me *event.MouseEvent) bool {
+func (h *Host) handleTabPress(me *event.MouseEvent) bool {
 	if me.Button != event.ButtonLeft {
 		return false
 	}
@@ -461,7 +461,7 @@ func (h *Host) handleTabPress(ctx widget.Context, me *event.MouseEvent) bool {
 				continue
 			}
 			if ts.CloseButtonBounds.Contains(me.Position) {
-				h.closePanel(ctx, z, i)
+				h.closePanel(z, i)
 				return true
 			}
 		}
@@ -530,7 +530,7 @@ func (h *Host) handleTabLeave(ctx widget.Context) bool {
 }
 
 // closePanel removes the panel at index idx from zone z.
-func (h *Host) closePanel(ctx widget.Context, z Zone, idx int) {
+func (h *Host) closePanel(z Zone, idx int) {
 	g := &h.zones[z]
 	if idx < 0 || idx >= len(g.panels) {
 		return

@@ -272,7 +272,7 @@ func TestGranularInvalidation_SelectTab_KeepsLayoutInvalidation(t *testing.T) {
 	widget.LayoutChild(w, ctx, geometry.Loose(geometry.Sz(200, 300)))
 
 	// selectTab is a structural change (content swap) -- MUST invalidate layout.
-	w.selectTab(ctx, 1)
+	w.selectTab(1)
 
 	if w.IsLayoutCacheValid() {
 		t.Error("selectTab MUST invalidate layout cache (structural change: content swap)")

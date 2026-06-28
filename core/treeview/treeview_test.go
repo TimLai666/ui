@@ -1436,11 +1436,10 @@ func TestSetSelectedNodeID_SameValue_Noop(t *testing.T) {
 func TestToggleNode_LeafIgnored(t *testing.T) {
 	root := makeTestTree()
 	w := New(Root(root))
-	ctx := makeCtx()
 
 	gc1 := findNodeByID(root, "gc1")
 	rowsBefore := w.RowCount()
-	w.toggleNode(ctx, gc1)
+	w.toggleNode(gc1)
 
 	if w.RowCount() != rowsBefore {
 		t.Error("toggling leaf should not change row count")
