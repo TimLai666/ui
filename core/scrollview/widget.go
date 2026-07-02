@@ -92,7 +92,7 @@ func (w *Widget) Layout(ctx widget.Context, constraints geometry.Constraints) ge
 	contentConstraints := w.buildContentConstraints()
 
 	// Measure content.
-	w.contentSize = w.content.Layout(ctx, contentConstraints)
+	w.contentSize = widget.LayoutChild(w.content, ctx, contentConstraints)
 
 	// Set content bounds at (0, 0) with its natural size.
 	if setter, ok := w.content.(interface{ SetBounds(geometry.Rect) }); ok {

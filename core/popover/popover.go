@@ -69,7 +69,7 @@ func (p *Popover) IsFocusable() bool {
 // of its trigger widget.
 func (p *Popover) Layout(ctx widget.Context, constraints geometry.Constraints) geometry.Size {
 	if p.cfg.trigger != nil {
-		return p.cfg.trigger.Layout(ctx, constraints)
+		return widget.LayoutChild(p.cfg.trigger, ctx, constraints)
 	}
 	return constraints.Constrain(geometry.Sz(0, 0))
 }
@@ -225,7 +225,7 @@ func (p *Popover) resolveContentSize(ctx widget.Context) geometry.Size {
 
 	windowSize := ctx.WindowSize()
 	loose := geometry.Loose(windowSize)
-	size := p.cfg.content.Layout(ctx, loose)
+	size := widget.LayoutChild(p.cfg.content, ctx, loose)
 
 	if p.cfg.contentWidth > 0 {
 		size.Width = p.cfg.contentWidth
@@ -324,7 +324,7 @@ func (oc *overlayContent) Layout(ctx widget.Context, constraints geometry.Constr
 
 	if oc.content != nil {
 		contentConstraints := geometry.Tight(size)
-		oc.content.Layout(ctx, contentConstraints)
+		widget.LayoutChild(oc.content, ctx, contentConstraints)
 		if setter, ok := oc.content.(interface{ SetBounds(geometry.Rect) }); ok {
 			setter.SetBounds(geometry.FromPointSize(oc.Bounds().Min, size))
 		}

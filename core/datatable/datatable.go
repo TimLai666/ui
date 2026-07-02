@@ -399,7 +399,7 @@ func (w *Widget) Layout(ctx widget.Context, constraints geometry.Constraints) ge
 		scrollH = 0
 	}
 	svConstraints := geometry.Tight(geometry.Sz(size.Width, scrollH))
-	w.scroll.Layout(ctx, svConstraints)
+	widget.LayoutChild(w.scroll, ctx, svConstraints)
 
 	return size
 }

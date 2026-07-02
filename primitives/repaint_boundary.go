@@ -342,7 +342,7 @@ func (rb *RepaintBoundary) Layout(ctx widget.Context, constraints geometry.Const
 		return size
 	}
 
-	size := rb.child.Layout(ctx, constraints)
+	size := widget.LayoutChild(rb.child, ctx, constraints)
 
 	// Position child at origin (no offset within boundary).
 	rb.child.(interface{ SetBounds(geometry.Rect) }).SetBounds(

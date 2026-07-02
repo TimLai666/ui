@@ -991,7 +991,7 @@ func newDialogTrigger(dlg *dialog.Widget, label string, ps painterSet) *dialogTr
 }
 
 func (dt *dialogTrigger) Layout(ctx widget.Context, c geometry.Constraints) geometry.Size {
-	return dt.btn.Layout(ctx, c)
+	return widget.LayoutChild(dt.btn, ctx, c)
 }
 
 func (dt *dialogTrigger) Draw(ctx widget.Context, canvas widget.Canvas) {

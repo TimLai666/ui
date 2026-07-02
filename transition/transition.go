@@ -191,7 +191,7 @@ func (t *Transition) Layout(ctx widget.Context, constraints geometry.Constraints
 	if t.child == nil {
 		return constraints.Constrain(geometry.Size{})
 	}
-	size := t.child.Layout(ctx, constraints)
+	size := widget.LayoutChild(t.child, ctx, constraints)
 	t.childSize = size
 	origin := t.Bounds().Min
 	setChildBounds(t.child, geometry.FromPointSize(origin, size))

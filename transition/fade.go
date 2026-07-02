@@ -188,7 +188,7 @@ func (f *Fade) Layout(ctx widget.Context, constraints geometry.Constraints) geom
 	if f.child == nil {
 		return constraints.Constrain(geometry.Size{})
 	}
-	size := f.child.Layout(ctx, constraints)
+	size := widget.LayoutChild(f.child, ctx, constraints)
 	origin := f.Bounds().Min
 	setChildBounds(f.child, geometry.FromPointSize(origin, size))
 	return size

@@ -211,7 +211,7 @@ func (w *Widget) layoutItems(ctx widget.Context, available geometry.Size) {
 		case ItemCustom:
 			if item.Widget != nil {
 				childConstraints := geometry.Loose(geometry.Sz(available.Width, available.Height))
-				sz := item.Widget.Layout(ctx, childConstraints)
+				sz := widget.LayoutChild(item.Widget, ctx, childConstraints)
 				fixedWidth += sz.Width
 			}
 		}

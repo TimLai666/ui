@@ -280,7 +280,7 @@ func (w *Widget) layoutChildren(ctx widget.Context, available geometry.Size) {
 			x += childGap
 		}
 		childConstraints := geometry.Loose(geometry.Sz(controlsX-x, available.Height))
-		sz := child.Layout(ctx, childConstraints)
+		sz := widget.LayoutChild(child, ctx, childConstraints)
 		cy := (available.Height - sz.Height) / 2
 		bounds := geometry.NewRect(x, cy, sz.Width, sz.Height)
 		w.leadingBounds[i] = bounds
@@ -303,7 +303,7 @@ func (w *Widget) layoutChildren(ctx widget.Context, available geometry.Size) {
 			centerTotalWidth += childGap
 		}
 		childConstraints := geometry.Loose(geometry.Sz(centerAvailable, available.Height))
-		sz := child.Layout(ctx, childConstraints)
+		sz := widget.LayoutChild(child, ctx, childConstraints)
 		centerSizes[i] = sz
 		centerTotalWidth += sz.Width
 	}

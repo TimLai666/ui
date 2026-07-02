@@ -263,7 +263,7 @@ func (h *Host) Layout(ctx widget.Context, constraints geometry.Constraints) geom
 	if h.cfg.centerContent != nil {
 		centerRect := rects[Center]
 		cc := geometry.Tight(centerRect.Size())
-		h.cfg.centerContent.Layout(ctx, cc)
+		widget.LayoutChild(h.cfg.centerContent, ctx, cc)
 		if setter, ok := h.cfg.centerContent.(interface{ SetBounds(geometry.Rect) }); ok {
 			setter.SetBounds(centerRect)
 		}
@@ -376,7 +376,7 @@ func (h *Host) layoutZone(ctx widget.Context, z Zone, zoneRect geometry.Rect) {
 	}
 
 	cc := geometry.Tight(contentRect.Size())
-	panel.Content().Layout(ctx, cc)
+	widget.LayoutChild(panel.Content(), ctx, cc)
 	if setter, ok := panel.Content().(interface{ SetBounds(geometry.Rect) }); ok {
 		setter.SetBounds(contentRect)
 	}

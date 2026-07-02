@@ -162,7 +162,7 @@ func (w *Widget) Layout(ctx widget.Context, constraints geometry.Constraints) ge
 			constraints.MinWidth, constraints.MaxWidth,
 			0, maxContentH,
 		)
-		w.contentSize = w.cfg.content.Layout(ctx, contentConstraints)
+		w.contentSize = widget.LayoutChild(w.cfg.content, ctx, contentConstraints)
 		contentH = w.contentSize.Height
 	}
 

@@ -309,7 +309,7 @@ func (w *Widget) layoutChild(ctx widget.Context, child widget.Widget, rect geome
 		MinHeight: rect.Height(),
 		MaxHeight: rect.Height(),
 	}
-	child.Layout(ctx, childConstraints)
+	widget.LayoutChild(child, ctx, childConstraints)
 	if setter, ok := child.(interface{ SetBounds(geometry.Rect) }); ok {
 		setter.SetBounds(rect)
 	}

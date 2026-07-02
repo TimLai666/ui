@@ -92,7 +92,7 @@ func (w *Widget) Layout(ctx widget.Context, constraints geometry.Constraints) ge
 		if tab.Content != nil {
 			contentBounds := w.contentBounds(totalSize)
 			contentConstraints := geometry.Tight(contentBounds.Size())
-			tab.Content.Layout(ctx, contentConstraints)
+			widget.LayoutChild(tab.Content, ctx, contentConstraints)
 
 			// Set bounds on content widget.
 			if setter, ok := tab.Content.(interface{ SetBounds(geometry.Rect) }); ok {

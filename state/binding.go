@@ -138,6 +138,7 @@ func BindToSchedulerLayout[T any](sig ReadonlySignal[T], w widget.Widget, sched 
 		if lm, ok := w.(layoutInvalidator); ok {
 			lm.MarkNeedsLayout()
 		}
+		widget.InvalidateLayoutTree(w)
 		sched.MarkDirty(w)
 	})
 	b.cleanup = unsub
@@ -157,6 +158,7 @@ func BindToSchedulerLayoutFunc[T any](sig ReadonlySignal[T], shouldDirty func(T)
 			if lm, ok := w.(layoutInvalidator); ok {
 				lm.MarkNeedsLayout()
 			}
+			widget.InvalidateLayoutTree(w)
 			sched.MarkDirty(w)
 		}
 	})

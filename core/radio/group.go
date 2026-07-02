@@ -231,7 +231,7 @@ func (g *Group) layoutVertical(ctx widget.Context, constraints geometry.Constrai
 	itemConstraints := geometry.Loose(geometry.Sz(constraints.MaxWidth, constraints.MaxHeight))
 
 	for i, it := range g.items {
-		itemSize := it.Layout(ctx, itemConstraints)
+		itemSize := widget.LayoutChild(it, ctx, itemConstraints)
 		if i > 0 {
 			totalHeight += itemSpacing
 		}
@@ -255,7 +255,7 @@ func (g *Group) layoutHorizontal(ctx widget.Context, constraints geometry.Constr
 	itemConstraints := geometry.Loose(geometry.Sz(constraints.MaxWidth, constraints.MaxHeight))
 
 	for i, it := range g.items {
-		itemSize := it.Layout(ctx, itemConstraints)
+		itemSize := widget.LayoutChild(it, ctx, itemConstraints)
 		if i > 0 {
 			totalWidth += itemSpacing
 		}

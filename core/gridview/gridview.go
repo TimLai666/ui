@@ -487,7 +487,7 @@ func (w *Widget) Layout(ctx widget.Context, constraints geometry.Constraints) ge
 
 	// Layout the internal scroll view with concrete constraints.
 	svConstraints := geometry.Tight(size)
-	w.scroll.Layout(ctx, svConstraints)
+	widget.LayoutChild(w.scroll, ctx, svConstraints)
 
 	return size
 }
